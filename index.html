@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#F1F5F9" />
+    <title>Yotoqhonam — Talabalar turar joyini raqamli boshqarish platformasi</title>
+    <meta
+      name="description"
+      content="Yotoqhonam is a student dormitory management platform: one register for every dormitory, floor, room and student, with 3D floor plans and duty handovers."
+    />
+
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="apple-touch-icon" href="./favicon.svg" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Inter:wght@300..700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <script>
+      // One theme ships. Applied before paint so the first frame is already on-brand.
+      (function () {
+        try {
+          localStorage.setItem('yotoqhonam.theme', 'light');
+        } catch (e) {
+          /* private mode: the default attribute on <html> already applies */
+        }
+        document.documentElement.dataset.theme = 'light';
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Yotoqhonam needs JavaScript enabled to run.</noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

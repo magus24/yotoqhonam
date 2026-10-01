@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yotoqhonam</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      html,body{height:100%;margin:0;background:#060910;color:#E8ECF5;font-family:Inter,system-ui,sans-serif}
+      .w{display:grid;place-items:center;height:100%}
+      .b{width:34px;height:34px;border:2px solid rgba(255,255,255,.14);border-top-color:#F2B441;border-radius:50%;animation:s .8s linear infinite}
+      @keyframes s{to{transform:rotate(360deg)}}
+      p{margin:16px 0 0;font-size:13px;color:#8E9AB4;text-align:center}
+    </style>
+  </head>
+  <body>
+    <div class="w">
+      <div>
+        <div class="b" style="margin:0 auto"></div>
+        <p>Opening Yotoqhonam…</p>
+      </div>
+    </div>
+    <script>
+      // GitHub Pages serves this file for any unknown path. The app uses
+      // HashRouter, so the real route always lives after the '#' — which
+      // means there is nothing to rewrite. This just sends people home.
+      (function () {
+        var target = location.pathname.replace(/\/+$/, '') + location.hash;
+        sessionStorage.setItem('yotoqhonam.intended', target);
+        location.replace('./' + (location.hash || '#/'));
+      })();
+    </script>
+  </body>
+</html>
