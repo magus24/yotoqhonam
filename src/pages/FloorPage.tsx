@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Info } from 'lucide-react';
 import { getNextDutyRoom, resolveRoomState, ROOM_VISUALS, ROOM_STATE_ORDER } from '../data/dutyQueue';
 import { roomsOfFloor } from '../data/registry';
@@ -26,6 +26,7 @@ export default function FloorPage() {
   const [floorId, setFloorId] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [showRotation, setShowRotation] = useState(false);
+  const [params, setParams] = useSearchParams();
 
   const floors = useFloors();
   const allRooms = useAllRooms();
@@ -35,13 +36,24 @@ export default function FloorPage() {
    * The plan shows one floor at a time. Default to the floor the signed-in
    * resident lives on, then to the first floor that actually has rooms, so a
    * freshly created floor never greets the warden with an empty corridor.
+   * `?floor=N` wins over both: a room page or a shared link has to land on the
+   * floor it names, not on whatever the default happens to be.
    */
+  const wantedFloor = Number(params.get('floor'));
   const floor =
     floors.find((f) => f.id === floorId) ??
+    floors.find((f) => f.number === wantedFloor) ??
     floors.find((f) => f.id === ownRoom?.floorId) ??
     floors.find((f) => allRooms.some((r) => r.floorId === f.id)) ??
     floors[0] ??
     null;
+
+  const selectFloor = (id: string) => {
+    setFloorId(id);
+    setSelectedRoomId(null);
+    const number = floors.find((f) => f.id === id)?.number;
+    setParams(number ? { floor: String(number) } : {}, { replace: true });
+  };
 
   const rooms = useMemo(
     () => (floor ? roomsOfFloor(allRooms, floor.id) : []),
@@ -90,10 +102,7 @@ export default function FloorPage() {
             {floors.map((f) => (
               <button
                 key={f.id}
-                onClick={() => {
-                  setFloorId(f.id);
-                  setSelectedRoomId(null);
-                }}
+                onClick={() => selectFloor(f.id)}
                 aria-pressed={f.id === floor?.id}
                 className={cn(
                   'shrink-0 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',

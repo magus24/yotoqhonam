@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
 import { DEMO_ACCOUNTS, DEMO_PASSWORD_MIN } from '../data/mock';
-import { useAllRooms, useFloors, useOccupancy, useRoom } from '../store/useRegistry';
+import { useAllRooms, useFloor, useFloors, useOccupancy, useRoom } from '../store/useRegistry';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
 import { useReducedMotion } from '../hooks/useMedia';
@@ -195,6 +195,7 @@ function StageBackdrop() {
   const duty = useDormStore((s) => s.duties.find((d) => d.id === activeDutyId) ?? null);
   const rooms = useAllRooms();
   const room = useRoom(duty?.roomId ?? null) ?? rooms[0] ?? null;
+  const floor = useFloor(room?.floorId);
 
   return (
     <>
@@ -221,7 +222,7 @@ function StageBackdrop() {
               {room.number}
             </div>
             <p className="mt-4 font-mono text-2xs uppercase tracking-[0.24em] text-text-dim">
-              Floor 2 · {room.side} side
+              Floor {floor?.number ?? '—'} · {room.side} side
             </p>
           </div>
         </motion.div>

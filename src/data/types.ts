@@ -10,7 +10,8 @@ export interface User {
   id: ID;
   name: string;
   email: string;
-  roomId: ID;
+  /** Null for residence staff: a warden manages the whole estate, not a bed. */
+  roomId: ID | null;
   role: Role;
   /** Two-letter monogram used on the key-tag avatars. */
   initials: string;
@@ -114,9 +115,46 @@ export interface DutyReport {
   note: string;
 }
 
+/**
+ * One payment for one student: it covers `months` months starting at
+ * `fromMonth`. Nothing is derived from a single "paid until" field on the
+ * student, because a student may pay in instalments or pay ahead — the ledger
+ * of payments is the truth and the coverage is derived from it.
+ */
+export interface Payment {
+  id: ID;
+  studentId: ID;
+  /** First month covered, `YYYY-MM`. */
+  fromMonth: string;
+  /** How many months this one payment settles (1–24). */
+  months: number;
+  /** Monthly fee in UZS charged for the covered period. */
+  monthlyFee: number;
+  /** When the money was taken, ISO timestamp. */
+  paidAt: string;
+  note?: string;
+}
+
+export type PaymentState = 'current' | 'due' | 'none';
+
+/** Derived per-student payment position. Never stored. */
+export interface PaymentSummary {
+  studentId: ID;
+  /** Total months settled across every payment. */
+  monthsPaid: number;
+  /** Total UZS collected across every payment. */
+  paid: number;
+  /** Latest month covered, `YYYY-MM`, or null when nothing was paid. */
+  coveredThrough: string | null;
+  /** Months between `coveredThrough` and the current month (0 = up to date). */
+  arrears: number;
+  state: PaymentState;
+  payments: Payment[];
+}
+
 /** Persisted, mutable slice of the demo world (localStorage). */
 export interface DemoState {
-  /** 2 = registry (dormitory/floors/rooms/beds/students) added to the v1 duty slice. */
+  /** 3 = payment ledger added to the v2 registry (dormitory/floors/rooms/beds/students). */
   version: number;
   currentUserId: ID;
   queue: ID[];
@@ -133,4 +171,5 @@ export interface DemoState {
   beds: Bed[];
   students: Student[];
   assignmentHistory: AssignmentEvent[];
+  payments: Payment[];
 }

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Building2 } from 'lucide-react';
 import type { Floor, ID, Room, Student } from '../data/types';
 import { getNextDutyRoom } from '../data/dutyQueue';
+import { isResidenceStaff } from '../data/registry';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
 import { useDormHistoryRooms, useDormitories, useDormitory, useDormOccupancy, useDutyRing, useUserRoom } from '../store/useRegistry';
@@ -10,6 +12,7 @@ import { EmptyState, SectionTitle, Stat } from '../components/ui/Primitives';
 import { toast } from '../components/ui/Toast';
 import { cn, todayISO } from '../lib/utils';
 import { StudentsTab } from './admin/StudentsTab';
+import { PaymentsTab } from './admin/PaymentsTab';
 import { BedsTab } from './admin/BedsTab';
 import { RoomsTab } from './admin/RoomsTab';
 import { FloorsTab } from './admin/FloorsTab';
@@ -19,6 +22,7 @@ import { FloorModal, RoomModal } from './admin/RoomModals';
 
 const TABS = [
   { id: 'students', label: 'Talabalar', hint: 'Students' },
+  { id: 'payments', label: 'To‘lovlar', hint: 'Payments' },
   { id: 'beds', label: 'Joylar', hint: 'Beds' },
   { id: 'rooms', label: 'Xonalar', hint: 'Rooms' },
   { id: 'floors', label: 'Qavatlar', hint: 'Floors' },
@@ -42,7 +46,21 @@ export default function Admin() {
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const resetDemo = useDormStore((s) => s.resetDemo);
 
-  const [tab, setTab] = useState<Tab>('students');
+  const [params, setParams] = useSearchParams();
+  const urlTab = params.get('tab') as Tab | null;
+  const initialTab: Tab = urlTab && TABS.some((t) => t.id === urlTab) ? urlTab : 'students';
+  const [tab, setTabState] = useState<Tab>(initialTab);
+
+  useEffect(() => {
+    if (urlTab && TABS.some((t) => t.id === urlTab) && urlTab !== tab) {
+      setTabState(urlTab);
+    }
+  }, [urlTab, tab]);
+
+  const setTab = (newTab: Tab) => {
+    setTabState(newTab);
+    setParams({ tab: newTab }, { replace: true });
+  };
   const [dormOpen, setDormOpen] = useState(false);
   const [student, setStudent] = useState<{ open: boolean; student: Student | null }>({
     open: false,
@@ -67,12 +85,12 @@ export default function Admin() {
   const today = duties.filter((d) => d.date === todayISO() && inScope(d.roomId));
   const completed = today.filter((d) => d.status === 'completed').length;
 
-  if (user && user.role !== 'admin') {
+  if (user && !isResidenceStaff(user)) {
     return (
       <EmptyState
         as="h1"
         title="This area is for the warden"
-        body={`You are signed in as a resident${ownRoom ? ` of room ${ownRoom.number}` : ''}. Sign in with the admin demo account to see the floor register.`}
+        body={`You are signed in as a resident${ownRoom ? ` of room ${ownRoom.number}` : ''}. Sign in with the admin demo account to see the residence register.`}
         action={
           <ButtonLink to="/dashboard" variant="ghost" size="sm">
             Back to overview
@@ -207,6 +225,7 @@ export default function Admin() {
         {tab === 'students' ? (
           <StudentsTab onAdd={() => openStudent(null)} onEdit={openStudent} onMove={setMoving} />
         ) : null}
+        {tab === 'payments' ? <PaymentsTab /> : null}
         {tab === 'beds' ? <BedsTab onMove={setMoving} /> : null}
         {tab === 'rooms' ? <RoomsTab ring={ring} onOpen={(r) => openRoom(r)} onAdd={(floorId) => openRoom(null, floorId)} /> : null}
         {tab === 'floors' ? (

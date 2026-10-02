@@ -1,10 +1,22 @@
-import type { Bed, Floor, ID, Room, Student } from './types';
+import type { Bed, Floor, ID, Payment, PaymentState, PaymentSummary, Room, Student, User } from './types';
+import { addMonths, monthKey, monthsBetween } from '../lib/utils';
 
 /**
  * Pure derivations and rules over the residence registry. No React, no storage —
  * the store owns mutations, this file owns meaning. Keeping them apart means the
  * occupancy rules can be reasoned about (and tested) without booting Zustand.
  */
+
+/* ---------------------------------- roles --------------------------------- */
+
+/**
+ * Staff run the residence; residents live in one. A warden has no bed of their
+ * own, so "your room" copy must never be shown to them and the admin console
+ * must never be scoped to a single room on their behalf.
+ */
+export function isResidenceStaff(user: User | null | undefined): boolean {
+  return user?.role === 'admin' || user?.role === 'warden';
+}
 
 /* --------------------------------- queries -------------------------------- */
 
@@ -141,6 +153,72 @@ export function canDeleteRoom(beds: Bed[], roomId: ID): Result {
     return fail(`Avval ${holders.length} nafar talabani bo‘shating.`);
   }
   return { ok: true };
+}
+
+/* -------------------------------- payments -------------------------------- */
+
+export function validatePayment(input: {
+  studentId: ID;
+  fromMonth: string;
+  months: number;
+  monthlyFee: number;
+}): Result {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.fromMonth)) {
+    return fail('Oyni `YYYY-MM` shaklida kiriting (masalan 2026-09).');
+  }
+  if (!Number.isInteger(input.months) || input.months < 1 || input.months > 24) {
+    return fail('To‘lov 1 dan 24 oy gacha bo‘lsin.');
+  }
+  if (!Number.isInteger(input.monthlyFee) || input.monthlyFee < 0 || input.monthlyFee > 5_000_000) {
+    return fail('Oylik to‘lov 0 dan 5 000 000 so‘m gacha bo‘lsin.');
+  }
+  return { ok: true };
+}
+
+/** This student's payments, oldest month first. */
+export function paymentsOfStudent(payments: Payment[], studentId: ID): Payment[] {
+  return payments
+    .filter((p) => p.studentId === studentId)
+    .sort((a, b) => a.fromMonth.localeCompare(b.fromMonth) || a.paidAt.localeCompare(b.paidAt));
+}
+
+/**
+ * The latest month any payment covers. Computed from the ledger rather than
+ * stored, because a payment may start before or after an earlier one.
+ */
+export function coveredThroughMonth(payments: Payment[], studentId: ID): string | null {
+  let latest: string | null = null;
+  for (const p of paymentsOfStudent(payments, studentId)) {
+    const end = addMonths(p.fromMonth, p.months - 1);
+    if (latest === null || monthsBetween(latest, end) > 0) latest = end;
+  }
+  return latest;
+}
+
+/**
+ * What a warden needs to know about one student: how much has been settled and
+ * whether it covers the current month. `arrears` counts the months between the
+ * last covered month and now, so 0 means up to date.
+ */
+export function paymentSummary(
+  payments: Payment[],
+  studentId: ID,
+  now: string = monthKey(),
+): PaymentSummary {
+  const list = paymentsOfStudent(payments, studentId);
+  const coveredThrough = coveredThroughMonth(payments, studentId);
+  const monthsPaid = list.reduce((sum, p) => sum + p.months, 0);
+  const paid = list.reduce((sum, p) => sum + p.months * p.monthlyFee, 0);
+  const arrears = coveredThrough === null ? 0 : Math.max(0, monthsBetween(coveredThrough, now));
+  const state: PaymentState = coveredThrough === null ? 'none' : arrears > 0 ? 'due' : 'current';
+  return { studentId, monthsPaid, paid, coveredThrough, arrears, state, payments: list };
+}
+
+/** Summaries for every student who holds a place, keyed by student id. */
+export function paymentSummaries(payments: Payment[], students: Student[], now = monthKey()): Map<ID, PaymentSummary> {
+  const map = new Map<ID, PaymentSummary>();
+  for (const student of students) map.set(student.id, paymentSummary(payments, student.id, now));
+  return map;
 }
 
 /* --------------------------------- layout --------------------------------- */

@@ -1,7 +1,17 @@
 import { useMemo } from 'react';
 import { useDormStore } from './dormStore';
-import { bedsOfRoom, occupiedCount, occupancyOf, residentsOfRoom, roomsOfFloor, type Occupancy } from '../data/registry';
-import type { Bed, Dormitory, Floor, ID, Room, Student, User } from '../data/types';
+import {
+  bedsOfRoom,
+  isResidenceStaff,
+  occupiedCount,
+  occupancyOf,
+  paymentSummaries,
+  paymentsOfStudent,
+  residentsOfRoom,
+  roomsOfFloor,
+  type Occupancy,
+} from '../data/registry';
+import type { Bed, Dormitory, Floor, ID, Payment, PaymentSummary, Room, Student, User } from '../data/types';
 
 /**
  * Derived views over the registry.
@@ -120,6 +130,39 @@ export function useStudents(): Student[] {
   return useDormStore((s) => s.students);
 }
 
+/**
+ * Residents of the *active* residence, plus everyone who holds no place at all.
+ * A student placed in another residence is excluded so the register and the
+ * payment ledger stay inside the header selector — but an unplaced student
+ * belongs to nobody, and dropping them would make the waiting list unreachable
+ * and "Joy berish" impossible.
+ */
+export function useDormStudents(): Student[] {
+  const students = useStudents();
+  const dormBeds = useDormBeds();
+  const beds = useDormStore((s) => s.beds);
+  return useMemo(() => {
+    const mine = new Set(dormBeds.map((b) => b.studentId).filter((id): id is ID => id !== null));
+    const placed = new Set(beds.map((b) => b.studentId).filter((id): id is ID => id !== null));
+    return students.filter((s) => mine.has(s.id) || !placed.has(s.id));
+  }, [students, dormBeds, beds]);
+}
+
+/** Placements limited to the active residence. */
+export function useDormPlacements(): Map<ID, Placement> {
+  const all = usePlacements();
+  const beds = useDormBeds();
+  return useMemo(() => {
+    const map = new Map<ID, Placement>();
+    for (const bed of beds) {
+      if (bed.studentId === null) continue;
+      const placement = all.get(bed.studentId);
+      if (placement) map.set(bed.studentId, placement);
+    }
+    return map;
+  }, [all, beds]);
+}
+
 export function useStudent(studentId: ID | null | undefined): Student | null {
   const students = useDormStore((s) => s.students);
   return useMemo(() => (studentId ? students.find((s) => s.id === studentId) ?? null : null), [students, studentId]);
@@ -209,7 +252,7 @@ export function useUserRoom(user: User | null): Room | null {
   const rooms = useDormStore((s) => s.rooms);
   const students = useDormStore((s) => s.students);
   return useMemo(() => {
-    if (!user) return null;
+    if (!user || isResidenceStaff(user)) return null;
     const student = students.find((s) => s.userId === user.id);
     const bed = student ? beds.find((b) => b.studentId === student.id) : null;
     const roomId = bed ? bed.roomId : user.roomId;
@@ -222,7 +265,7 @@ export function useUserBed(user: User | null): Bed | null {
   const beds = useDormStore((s) => s.beds);
   const students = useDormStore((s) => s.students);
   return useMemo(() => {
-    if (!user) return null;
+    if (!user || isResidenceStaff(user)) return null;
     const student = students.find((s) => s.userId === user.id);
     return student ? beds.find((b) => b.studentId === student.id) ?? null : null;
   }, [user, beds, students]);
@@ -236,4 +279,26 @@ export function useDutyRing(): Room[] {
     () => queue.map((id) => rooms.find((r) => r.id === id)).filter((r): r is Room => Boolean(r)),
     [queue, rooms],
   );
+}
+
+/* -------------------------------- payments -------------------------------- */
+
+export function usePayments(): Payment[] {
+  return useDormStore((s) => s.payments);
+}
+
+/**
+ * What every student owes and has paid, keyed by student id. Coverage and
+ * arrears are derived from the payment ledger rather than stored, so a new
+ * payment needs no bookkeeping anywhere else.
+ */
+export function usePaymentSummaries(students: Student[]): Map<ID, PaymentSummary> {
+  const payments = usePayments();
+  return useMemo(() => paymentSummaries(payments, students), [payments, students]);
+}
+
+/** Records for one student, oldest month first — the ledger under the row. */
+export function useStudentPayments(studentId: ID | null): Payment[] {
+  const payments = usePayments();
+  return useMemo(() => (studentId ? paymentsOfStudent(payments, studentId) : []), [payments, studentId]);
 }

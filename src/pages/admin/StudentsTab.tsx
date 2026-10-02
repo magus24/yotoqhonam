@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Pencil, Plus } from 'lucide-react';
+import { CreditCard, Pencil, Plus } from 'lucide-react';
 import type { Student } from '../../data/types';
 import { useDormStore } from '../../store/dormStore';
-import { usePlacements, useStudents } from '../../store/useRegistry';
+import { useDormPlacements, useDormStudents, usePaymentSummaries } from '../../store/useRegistry';
 import { Button } from '../../components/ui/Button';
 import { EmptyState, KeyTag } from '../../components/ui/Primitives';
 import { DangerButton, report } from './ui';
+import { RecordPaymentModal } from './RecordPaymentModal';
 
 export function StudentsTab({
   onAdd,
@@ -17,8 +18,10 @@ export function StudentsTab({
   onMove: (s: Student) => void;
 }) {
   const [q, setQ] = useState('');
-  const students = useStudents();
-  const placements = usePlacements();
+  const [payingStudent, setPayingStudent] = useState<Student | null>(null);
+  const students = useDormStudents();
+  const placements = useDormPlacements();
+  const summaries = usePaymentSummaries(students);
   const evictStudent = useDormStore((s) => s.evictStudent);
   const deleteStudent = useDormStore((s) => s.deleteStudent);
 
@@ -43,7 +46,7 @@ export function StudentsTab({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search by name, ID, phone or room"
+          placeholder="Ism, ID, telefon yoki xona..."
           aria-label="Search residents"
           className="field max-w-xs"
         />
@@ -57,11 +60,11 @@ export function StudentsTab({
 
       {filtered.length === 0 ? (
         <EmptyState
-          title="No matches"
-          body="Try a different name, ID fragment or room number, or add a new student to the register."
+          title="Talabalar topilmadi"
+          body="Qidiruv so‘zini o‘zgartiring yoki yangi talaba qo‘shing."
           action={
             <Button size="sm" onClick={onAdd}>
-              Add student
+              Talaba qo‘shish
             </Button>
           }
         />
@@ -70,6 +73,8 @@ export function StudentsTab({
           {filtered.map((s) => {
             const where = placements.get(s.id);
             const placed = Boolean(where);
+            const summary = summaries.get(s.id);
+            const state = summary?.state ?? 'none';
             return (
               <li key={s.id} className="panel-quiet p-4">
                 <div className="flex items-start gap-3">
@@ -81,7 +86,7 @@ export function StudentsTab({
                       {s.course ? ` · ${s.course}-kurs` : ''}
                     </p>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="flex flex-col items-end gap-1">
                     {placed ? (
                       <span className="plate px-1.5 py-0.5 text-[11px]">
                         {where?.room?.number ?? '—'} · {where?.bed.number}-joy
@@ -91,6 +96,21 @@ export function StudentsTab({
                         joyda yo‘q
                       </span>
                     )}
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                        state === 'current'
+                          ? 'border-mint-600/30 bg-mint-400/12 text-mint-700'
+                          : state === 'due'
+                            ? 'border-brass-400/40 bg-brass-400/14 text-brass-700'
+                            : 'border-graphite-950/12 bg-graphite-950/[0.04] text-text-dim'
+                      }`}
+                    >
+                      {state === 'current'
+                        ? `${summary?.monthsPaid} oy to‘langan`
+                        : state === 'due'
+                          ? `${summary?.arrears} oy qarz`
+                          : 'To‘lanmagan'}
+                    </span>
                   </div>
                 </div>
 
@@ -105,7 +125,15 @@ export function StudentsTab({
                   </div>
                 </dl>
 
-                <div className="mt-3.5 flex flex-wrap gap-2 border-t border-graphite-950/[0.07] pt-3">
+                <div className="mt-3.5 flex flex-wrap items-center gap-2 border-t border-graphite-950/[0.07] pt-3">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setPayingStudent(s)}
+                    icon={<CreditCard className="size-3.5" />}
+                  >
+                    To‘lov
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => onMove(s)}>
                     {placed ? 'Ko‘chirish' : 'Joy berish'}
                   </Button>
@@ -138,6 +166,13 @@ export function StudentsTab({
           })}
         </ul>
       )}
+
+      {/* Modal for recording payment directly from student card */}
+      <RecordPaymentModal
+        open={Boolean(payingStudent)}
+        student={payingStudent}
+        onClose={() => setPayingStudent(null)}
+      />
     </section>
   );
 }

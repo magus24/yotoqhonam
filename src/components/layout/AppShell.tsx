@@ -5,6 +5,7 @@ import { Boxes, ClipboardCheck, LayoutGrid, LogOut, Users } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useDormStore } from '../../store/dormStore';
 import { useDormitory, useFloor, useRoom, useUserRoom } from '../../store/useRegistry';
+import { isResidenceStaff } from '../../data/registry';
 import type { Room } from '../../data/types';
 import { cn, firstName } from '../../lib/utils';
 import { KeyTag } from '../ui/Primitives';
@@ -68,6 +69,7 @@ export function AppShell() {
   const activeDuty = duties.find((d) => d.id === activeDutyId) ?? null;
   const activeRoom = useRoom(activeDuty?.roomId);
   const ownRoom = useUserRoom(user);
+  const staff = isResidenceStaff(user);
   const activeFloor = useFloor(activeRoom?.floorId);
 
   useEffect(() => {
@@ -103,6 +105,10 @@ export function AppShell() {
             <span className="plate px-1.5 py-0.5 text-[10px]" title={`Home room ${ownRoom.number}`}>
               {ownRoom.number}
             </span>
+          ) : staff ? (
+            <span className="plate px-1.5 py-0.5 text-[10px] font-semibold text-mint-700" title="Barcha 4 qavat boshqaruvi">
+              Admin
+            </span>
           ) : null}
           <button
             onClick={handleSignOut}
@@ -121,7 +127,10 @@ export function AppShell() {
             <BrandMark />
           </div>
           <div className="hidden min-w-0 items-center gap-3 lg:flex">
-            <span className="engrave shrink-0">{dormitory?.name ?? 'Yotoqxona'}{activeFloor ? ` / ${activeFloor.name}` : ''}</span>
+            <span className="engrave shrink-0">
+              {dormitory?.name ?? 'Yotoqxona'}
+              {staff ? ' · Barcha 4 qavat' : activeFloor ? ` / ${activeFloor.name}` : ''}
+            </span>
             {activeRoom ? (
               <span className="flex items-center gap-2 text-xs text-text-mist">
                 <span className="size-1 animate-pulse rounded-full bg-brass-400" />
@@ -141,7 +150,7 @@ export function AppShell() {
                 <KeyTag initials={user.initials} tone={ownRoom?.id === activeDuty?.roomId ? 'brass' : 'mint'} />
                 <div className="hidden leading-tight sm:block">
                   <p className="text-sm font-medium text-text">{firstName(user.name)}</p>
-                  <p className="engrave">{ownRoom ? `Room ${ownRoom.number}` : user.role}</p>
+                  <p className="engrave">{staff ? 'Boshqaruvchi · 4 qavat' : ownRoom ? `Room ${ownRoom.number}` : user.role}</p>
                 </div>
               </div>
             ) : null}

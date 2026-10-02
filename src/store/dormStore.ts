@@ -6,6 +6,7 @@ import type {
   DutyReport,
   Floor,
   ID,
+  Payment,
   Room,
   Student,
 } from '../data/types';
@@ -15,13 +16,13 @@ import * as reg from '../data/registry';
 import { STORAGE_KEYS, readJSON, writeJSON } from '../lib/storage';
 import { initialsOf, todayISO, uid } from '../lib/utils';
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 4;
 
 /**
  * v1 held only the duty slice and kept the residence hierarchy in module
  * constants. v2 moves dormitories/floors/rooms/beds/students into the persisted
- * registry, so admin edits survive a reload. The duty slice is carried across
- * untouched; only the *new* registry is seeded.
+ * registry. v3 adds payments. v4 ensures all 4 floors with students and rooms
+ * are guaranteed across every browser session and purges any legacy admin room bindings.
  */
 function migrate(stored: unknown): DemoState | null {
   if (!stored || typeof stored !== 'object') return null;
@@ -29,19 +30,41 @@ function migrate(stored: unknown): DemoState | null {
   if (!Array.isArray(v.duties)) return null;
 
   const seed = createInitialDemoState();
-  if (v.version === SCHEMA_VERSION && Array.isArray(v.beds) && Array.isArray(v.students)) {
+  if (
+    v.version === SCHEMA_VERSION &&
+    Array.isArray(v.floors) &&
+    v.floors.length >= 4 &&
+    Array.isArray(v.rooms) &&
+    v.rooms.length >= 40 &&
+    Array.isArray(v.beds) &&
+    Array.isArray(v.students) &&
+    v.students.length >= 50 &&
+    Array.isArray(v.payments)
+  ) {
     return { ...(stored as DemoState) };
   }
 
-  return {
-    ...seed,
-    currentUserId: v.currentUserId ?? seed.currentUserId,
-    queue: Array.isArray(v.queue) && v.queue.length > 0 ? v.queue : seed.queue,
-    activeDutyId: v.activeDutyId ?? null,
-    duties: v.duties,
-    reports: Array.isArray(v.reports) ? v.reports : [],
-    skippedRoomIds: Array.isArray(v.skippedRoomIds) ? v.skippedRoomIds : [],
-  };
+  // If a v3/v2 payload already has the complete 4 floors, preserve any custom payments
+  if (
+    (v.version ?? 1) >= 2 &&
+    Array.isArray(v.floors) &&
+    v.floors.length >= 4 &&
+    Array.isArray(v.rooms) &&
+    v.rooms.length >= 40 &&
+    Array.isArray(v.beds) &&
+    Array.isArray(v.students) &&
+    v.students.length >= 50
+  ) {
+    return {
+      ...(v as DemoState),
+      version: SCHEMA_VERSION,
+      payments: Array.isArray(v.payments) && v.payments.length > 0 ? v.payments : seed.payments,
+      assignmentHistory: Array.isArray(v.assignmentHistory) ? v.assignmentHistory : [],
+    };
+  }
+
+  // Reset to the full 4-floor residence with all rooms, students, and payments
+  return seed;
 }
 
 /**
@@ -73,9 +96,14 @@ function loadState(): DemoState {
   const staleShape =
     !stored ||
     stored.version !== SCHEMA_VERSION ||
+    !Array.isArray(stored.floors) ||
+    stored.floors.length < 4 ||
     !Array.isArray(stored.rooms) ||
+    stored.rooms.length < 40 ||
     !Array.isArray(stored.beds) ||
-    !Array.isArray(stored.students);
+    !Array.isArray(stored.students) ||
+    stored.students.length < 50 ||
+    !Array.isArray(stored.payments);
   // Compare against what is *stored*, not against `state` — the rolled-over
   // state always contains today by construction, so testing it would never
   // detect a rollover.
@@ -134,6 +162,17 @@ export interface DormStore extends DemoState {
   assignStudent: (studentId: ID, bedId: ID) => reg.Result;
   moveStudent: (studentId: ID, bedId: ID) => reg.Result;
   evictStudent: (studentId: ID) => reg.Result;
+
+  /* ------------------------------- payments ------------------------------ */
+
+  addPayment: (input: {
+    studentId: ID;
+    fromMonth: string;
+    months: number;
+    monthlyFee: number;
+    note?: string;
+  }) => reg.Result<ID>;
+  deletePayment: (id: ID) => reg.Result;
 }
 
 const persist = (s: DemoState) => {
@@ -152,6 +191,7 @@ const persist = (s: DemoState) => {
     beds: s.beds,
     students: s.students,
     assignmentHistory: s.assignmentHistory,
+    payments: s.payments,
   });
 };
 
@@ -488,7 +528,13 @@ export const useDormStore = create<DormStore>((set, get) => ({
     if (reg.bedOfStudent(s.beds, id)) {
       return { ok: false, error: 'Avval talabani bo‘shating.' };
     }
-    commit(set, get, { students: s.students.filter((st) => st.id !== id) });
+    commit(set, get, {
+      students: s.students.filter((st) => st.id !== id),
+      // The ledger follows the person: a payment row with no student is money
+      // nobody can attribute, so it must not outlive the record.
+      payments: s.payments.filter((p) => p.studentId !== id),
+      assignmentHistory: s.assignmentHistory.filter((e) => e.studentId !== id),
+    });
     return { ok: true };
   },
 
@@ -581,6 +627,33 @@ export const useDormStore = create<DormStore>((set, get) => ({
         },
       ],
     });
+    return { ok: true };
+  },
+
+  addPayment: (input) => {
+    const s = get();
+    if (!s.students.some((st) => st.id === input.studentId)) {
+      return { ok: false, error: 'Talaba topilmadi.' };
+    }
+    const check = reg.validatePayment(input);
+    if (!check.ok) return check;
+    const payment: Payment = {
+      id: uid('pay'),
+      studentId: input.studentId,
+      fromMonth: input.fromMonth.trim(),
+      months: input.months,
+      monthlyFee: input.monthlyFee,
+      paidAt: new Date().toISOString(),
+      note: input.note?.trim() || undefined,
+    };
+    commit(set, get, { payments: [...s.payments, payment] });
+    return { ok: true, value: payment.id };
+  },
+
+  deletePayment: (id) => {
+    const s = get();
+    if (!s.payments.some((p) => p.id === id)) return { ok: false, error: 'To‘lov topilmadi.' };
+    commit(set, get, { payments: s.payments.filter((p) => p.id !== id) });
     return { ok: true };
   },
 }));

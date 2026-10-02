@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Camera, CheckCircle2, History, Users } from 'luc
 import { getNextDutyRoom, resolveRoomState, ROOM_VISUALS } from '../data/dutyQueue';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
-import { useDutyRing, useResidents, useRoom, useRoomBeds, useRoomOccupant, useUserRoom } from '../store/useRegistry';
+import { useDutyRing, useFloor, useResidents, useRoom, useRoomBeds, useRoomOccupant, useUserRoom } from '../store/useRegistry';
 import { useReducedMotion } from '../hooks/useMedia';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { DutyStamp, DutyTimeline } from '../components/duty/DutyTimeline';
@@ -25,6 +25,7 @@ export default function RoomPage() {
   const setActiveDuty = useDormStore((s) => s.setActiveDuty);
 
   const room = useRoom(id);
+  const floor = useFloor(room?.floorId);
   const residents = useResidents(id);
   const beds = useRoomBeds(id);
   const ownRoom = useUserRoom(user);
@@ -80,9 +81,9 @@ export default function RoomPage() {
 
   return (
     <div className="space-y-8">
-      <Link to="/floor" className="inline-flex items-center gap-2 text-xs text-text-mist transition-colors hover:text-text">
+      <Link to={`/floor?floor=${floor?.number ?? ''}`} className="inline-flex items-center gap-2 text-xs text-text-mist transition-colors hover:text-text">
         <ArrowLeft className="size-3.5" strokeWidth={1.7} />
-        Floor 2 plan
+        Floor {floor?.number ?? '—'} plan
       </Link>
 
       <header className="flex flex-wrap items-end justify-between gap-6">
@@ -110,7 +111,7 @@ export default function RoomPage() {
             Room {room.number}
           </h1>
           <p className="mt-2 text-sm text-text-mist">
-            Floor 2 · {room.side} side of the corridor · capacity {room.capacity}
+            Floor {floor?.number ?? '—'} · {room.side} side of the corridor · capacity {room.capacity}
           </p>
         </div>
 

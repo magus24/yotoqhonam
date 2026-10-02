@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, CalendarClock, Camera, ChevronRight, RotateCcw, Users } from 'lucide-react';
+import { ArrowRight, CalendarClock, Camera, ChevronRight, CreditCard, RotateCcw, Users } from 'lucide-react';
 import { getNextDutyRoom, resolveRoomState, ROOM_STATE_ORDER, ROOM_VISUALS } from '../data/dutyQueue';
+import { isResidenceStaff, roomsOfFloor } from '../data/registry';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
 import {
@@ -13,6 +14,8 @@ import {
   useFloor,
   useFloors,
   useOccupancy,
+  usePayments,
+  usePaymentSummaries,
   usePlacements,
   useResidents,
   useRoom,
@@ -44,6 +47,7 @@ export default function Dashboard() {
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const resetDemo = useDormStore((s) => s.resetDemo);
 
+  const [selectedFloorId, setSelectedFloorId] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
 
@@ -56,16 +60,30 @@ export default function Dashboard() {
   const ownBed = useUserBed(user);
   const ownResidents = useResidents(ownRoom?.id ?? null);
   const students = useStudents();
+  const payments = usePayments();
+  const summaries = usePaymentSummaries(students);
+
+  // Staff have no bed of their own — they answer for the whole residence, so
+  // every "your room" affordance below has to give way to the estate view.
+  const staff = isResidenceStaff(user);
 
   const activeRoom = useRoom(activeDuty?.roomId ?? null);
   const nextRoom = getNextDutyRoom(activeRoom?.id ?? '', ring);
 
   const totalResidents = occupancy.occupied;
-  const ownFloor = floors.find((f) => f.id === ownRoom?.floorId) ?? floors[0];
+
+  // A resident sees their floor; staff can switch between any of the 4 floors
+  const ownFloor =
+    floors.find((f) => f.id === selectedFloorId) ??
+    (staff ? floors[0] : (floors.find((f) => f.id === ownRoom?.floorId) ?? floors[0]));
   const floorNo = ownFloor?.number ?? 1;
 
   const floorResidents = useFloorResidents(ownFloor?.id);
+  const floorRooms = useMemo(() => (ownFloor ? roomsOfFloor(rooms, ownFloor.id) : rooms), [rooms, ownFloor]);
   const placements = usePlacements();
+
+  const paidCount = useMemo(() => Array.from(summaries.values()).filter((s) => s.state === 'current').length, [summaries]);
+  const dueCount = useMemo(() => Array.from(summaries.values()).filter((s) => s.state === 'due').length, [summaries]);
 
   const occupiedRooms = occupancy.occupiedRooms;
   const totalBeds = occupancy.capacity;
@@ -85,13 +103,17 @@ export default function Dashboard() {
 
   const HIERARCHY = [
     { label: 'Yotoqxona', value: dormitory?.name ?? '-', to: '/admin' },
-    { label: 'Qavat', value: `Floor ${floorNo}`, to: '/floor' },
-    {
-      label: 'Xona',
-      value: ownRoom ? `Room ${ownRoom.number}` : 'Unassigned',
-      to: ownRoom ? `/room/${ownRoom.id}` : null,
-    },
-    { label: 'Talaba', value: firstName(user.name), to: null },
+    { label: 'Qavat', value: staff ? `${floorNo}-qavat` : `Floor ${floorNo}`, to: `/floor?floor=${floorNo}` },
+    staff
+      ? { label: 'Boshqaruv', value: 'Barcha xonalar (40 ta)', to: '/admin' }
+      : {
+          label: 'Xona',
+          value: ownRoom ? `Room ${ownRoom.number}` : 'Unassigned',
+          to: ownRoom ? `/room/${ownRoom.id}` : null,
+        },
+    staff
+      ? { label: 'Rol', value: `${user.name} (Bosh administrator)`, to: '/admin' }
+      : { label: 'Talaba', value: firstName(user.name), to: null },
   ];
 
   return (
@@ -147,6 +169,75 @@ export default function Dashboard() {
       </header>
 
       {/* ---------------------------------------------------------------- */}
+      {/* Floor selection switcher for exploring all 4 floors              */}
+      {/* ---------------------------------------------------------------- */}
+      {floors.length > 1 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-graphite-950/10 bg-graphite-950/[0.03] p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-text">Qavatlar:</span>
+            <span className="text-xs text-text-dim">Bino bo‘ylab qavatni tanlang</span>
+          </div>
+          <div className="no-scrollbar flex items-center gap-1.5 overflow-x-auto" role="group" aria-label="Floor selection">
+            {floors.map((fl) => (
+              <button
+                key={fl.id}
+                onClick={() => {
+                  setSelectedFloorId(fl.id);
+                  setSelectedRoomId(null);
+                }}
+                className={`shrink-0 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  fl.id === ownFloor?.id
+                    ? 'border-mint-600/40 bg-mint-400/20 text-mint-700 font-semibold shadow-xs'
+                    : 'border-graphite-950/10 text-text-mist hover:border-graphite-950/20 hover:text-text'
+                }`}
+              >
+                {fl.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/* ---------------------------------------------------------------- */}
+      {/* Staff Payment Overview card                                       */}
+      {/* ---------------------------------------------------------------- */}
+      {staff ? (
+        <section aria-label="To‘lovlar monitoringi" className="panel p-5 sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <SectionTitle hint={<CreditCard className="size-4 text-text-dim" strokeWidth={1.6} />}>
+              To‘lovlar monitoringi (Barcha 4 qavat)
+            </SectionTitle>
+            <ButtonLink to="/admin?tab=payments" size="sm">
+              Barcha to‘lovlarni ko‘rish va kiritish
+              <ChevronRight className="size-3.5" />
+            </ButtonLink>
+          </div>
+          <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="rounded-xl border border-graphite-950/10 bg-graphite-950/[0.03] p-3.5">
+              <dt className="engrave">Jami talabalar</dt>
+              <dd className="mt-1 font-display text-2xl font-semibold text-text">{students.length}</dd>
+              <p className="mt-0.5 text-[11px] text-text-dim">4 ta qavat bo‘yicha</p>
+            </div>
+            <div className="rounded-xl border border-mint-600/25 bg-mint-400/10 p-3.5">
+              <dt className="engrave text-mint-700">To‘liq to‘laganlar</dt>
+              <dd className="mt-1 font-display text-2xl font-semibold text-mint-700">{paidCount}</dd>
+              <p className="mt-0.5 text-[11px] text-mint-700">Qarzsiz talabalar</p>
+            </div>
+            <div className="rounded-xl border border-brass-400/30 bg-brass-400/10 p-3.5">
+              <dt className="engrave text-brass-700">Qarzdorlar</dt>
+              <dd className="mt-1 font-display text-2xl font-semibold text-brass-700">{dueCount}</dd>
+              <p className="mt-0.5 text-[11px] text-brass-700">To‘lovi kechikkan</p>
+            </div>
+            <div className="rounded-xl border border-graphite-950/10 bg-graphite-950/[0.03] p-3.5">
+              <dt className="engrave">To‘lov yozuvlari</dt>
+              <dd className="mt-1 font-display text-2xl font-semibold text-text">{payments.length}</dd>
+              <p className="mt-0.5 text-[11px] text-text-dim">Kvitansiyalar soni</p>
+            </div>
+          </dl>
+        </section>
+      ) : null}
+
+      {/* ---------------------------------------------------------------- */}
       {/* Registration and occupancy come before duty                       */}
       {/* ---------------------------------------------------------------- */}
       <section aria-label="Residence register" className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)]">
@@ -159,14 +250,16 @@ export default function Dashboard() {
             <Figure label="Rooms" value={rooms.length} sub={`${occupiedRooms} occupied`} />
             <Figure label="Beds free" value={bedsFree} sub={`of ${totalBeds} in the residence`} />
             <Figure
-              label="Your room"
-              value={ownRoom ? ownRoom.number : '—'}
+              label={staff ? 'Boshqaruv hududi' : 'Your room'}
+              value={staff ? 'Barcha xonalar' : ownRoom ? ownRoom.number : '—'}
               sub={
-                ownRoom
-                  ? ownBed
-                    ? `joy ${ownBed.number} · ${ownRoom.capacity - ownResidents.length} bo‘sh`
-                    : `${ownResidents.length} of ${ownRoom.capacity} filled`
-                  : 'unassigned'
+                staff
+                  ? `${floors.length} ta qavat · ${rooms.length} ta xona · 100% nazorat`
+                  : ownRoom
+                    ? ownBed
+                      ? `joy ${ownBed.number} · ${ownRoom.capacity - ownResidents.length} bo‘sh`
+                      : `${ownResidents.length} of ${ownRoom.capacity} filled`
+                    : 'unassigned'
               }
             />
           </dl>
@@ -201,6 +294,11 @@ export default function Dashboard() {
               Open room {ownRoom.number}
               <ChevronRight className="size-3.5" />
             </ButtonLink>
+          ) : staff ? (
+            <ButtonLink to="/admin" variant="ghost" size="sm" className="mt-5 w-full">
+              Open the warden console
+              <ChevronRight className="size-3.5" />
+            </ButtonLink>
           ) : null}
         </div>
       </section>
@@ -224,10 +322,10 @@ export default function Dashboard() {
 
       {/* ---------------------------------------------------------------- */}
       <section className="space-y-4">
-        <SectionTitle hint={<span className="font-mono tabular-nums">{rooms.length} rooms</span>}>
+        <SectionTitle hint={<span className="font-mono tabular-nums">{floorRooms.length} rooms</span>}>
           Floor {floorNo} plan
         </SectionTitle>
-        <FloorStage selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} reducedMotion={reduced} />
+        <FloorStage rooms={floorRooms} selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} reducedMotion={reduced} />
       </section>
 
       {/* ---------------------------------------------------------------- */}
@@ -449,10 +547,12 @@ function DutyCard({
 /* -------------------------------------------------------------------------- */
 
 function FloorStage({
+  rooms,
   selectedRoomId,
   onSelect,
   reducedMotion,
 }: {
+  rooms: Room[];
   selectedRoomId: string | null;
   onSelect: (id: string | null) => void;
   reducedMotion: boolean;
@@ -460,7 +560,6 @@ function FloorStage({
   const user = useAuthStore((s) => s.user);
   const duties = useDormStore((s) => s.duties);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
-  const rooms = useAllRooms();
   const ring = useDutyRing();
   const ownRoom = useUserRoom(user);
   const activeDuty = duties.find((d) => d.id === activeDutyId) ?? null;

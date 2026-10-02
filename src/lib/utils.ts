@@ -82,3 +82,41 @@ export function uid(prefix = 'id'): string {
   counter += 1;
   return `${prefix}_${Date.now().toString(36)}_${counter.toString(36)}`;
 }
+
+/* --------------------------------- months -------------------------------- */
+
+/** "2026-10" for the current local month — payments are billed by month. */
+export function monthKey(d: Date = new Date()): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Shifts a `YYYY-MM` key by whole months, keeping the month valid. */
+export function addMonths(key: string, delta: number): string {
+  const [y, m] = key.split('-').map(Number);
+  const date = new Date(y ?? 1970, ((m ?? 1) - 1) + delta, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Whole months from `from` to `to`, both `YYYY-MM`. Negative when `to` is
+ * before `from`, so callers can compare without reordering the arguments.
+ */
+export function monthsBetween(from: string, to: string): number {
+  const [fy, fm] = from.split('-').map(Number);
+  const [ty, tm] = to.split('-').map(Number);
+  return (ty ?? 0) * 12 + (tm ?? 0) - ((fy ?? 0) * 12 + (fm ?? 0));
+}
+
+/** "October 2026" — the label used in the payment ledger. */
+export function formatMonth(key: string): string {
+  const [y, m] = key.split('-').map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, 1).toLocaleDateString('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** "1 250 000 so'm" — grouped the way an Uzbek ledger writes it. */
+export function formatSum(value: number): string {
+  return `${new Intl.NumberFormat('en-US').format(Math.round(value))} so‘m`;
+}

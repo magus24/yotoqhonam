@@ -4,11 +4,12 @@ import type {
   Dormitory,
   Duty,
   Floor,
+  Payment,
   Room,
   Student,
   User,
 } from './types';
-import { addDaysISO, initialsOf, todayISO } from '../lib/utils';
+import { addDaysISO, addMonths, initialsOf, monthKey, todayISO } from '../lib/utils';
 
 export const DORMITORY: Dormitory = {
   id: 'dorm_1',
@@ -16,29 +17,56 @@ export const DORMITORY: Dormitory = {
   address: 'Universitet ko‘chasi 14, Toshkent',
 };
 
-export const FLOORS: Floor[] = [
-  { id: 'floor_1', dormitoryId: DORMITORY.id, number: 1, name: 'Floor 1' },
-  { id: 'floor_2', dormitoryId: DORMITORY.id, number: 2, name: 'Floor 2' },
-  { id: 'floor_3', dormitoryId: DORMITORY.id, number: 3, name: 'Floor 3' },
+export const FLOORS: Floor[] = [1, 2, 3, 4].map((n) => ({
+  id: `floor_${n}`,
+  dormitoryId: DORMITORY.id,
+  number: n,
+  name: `Floor ${n}`,
+}));
+
+/** Rooms per floor, and their capacity, walking up the corridor. */
+const ROOM_PLAN: { capacity: number }[] = [
+  { capacity: 4 },
+  { capacity: 4 },
+  { capacity: 3 },
+  { capacity: 4 },
+  { capacity: 4 },
+  { capacity: 4 },
+  { capacity: 3 },
+  { capacity: 4 },
+  { capacity: 2 },
+  { capacity: 4 },
 ];
 
 /**
- * Floor 2 is the live floor for the demo. Ten rooms sit either side of a
- * central corridor: even numbers north, odd numbers south.
- * `x` spans the corridor, `z` is the distance out from it.
+ * Every floor holds ten rooms either side of a central corridor: odd slots on
+ * the north side, even on the south, 3.25 apart. `x` spans the corridor and `z`
+ * is the distance out from it, so the 3D plan reads like a real floor.
+ *
+ * Floor 2 keeps the ids and coordinates it always had, because the seeded duty
+ * ring (`room_204 … room_207`) points at them.
  */
-export const ROOMS: Room[] = [
-  { id: 'room_201', floorId: 'floor_2', number: '201', capacity: 4, x: -6.5, z: -2.6, side: 'north' },
-  { id: 'room_202', floorId: 'floor_2', number: '202', capacity: 4, x: -3.25, z: 2.6, side: 'south' },
-  { id: 'room_203', floorId: 'floor_2', number: '203', capacity: 3, x: 0, z: -2.6, side: 'north' },
-  { id: 'room_204', floorId: 'floor_2', number: '204', capacity: 4, x: 3.25, z: 2.6, side: 'south' },
-  { id: 'room_205', floorId: 'floor_2', number: '205', capacity: 4, x: 6.5, z: -2.6, side: 'north' },
-  { id: 'room_206', floorId: 'floor_2', number: '206', capacity: 4, x: 9.75, z: 2.6, side: 'south' },
-  { id: 'room_207', floorId: 'floor_2', number: '207', capacity: 3, x: 13, z: -2.6, side: 'north' },
-  { id: 'room_208', floorId: 'floor_2', number: '208', capacity: 4, x: 16.25, z: 2.6, side: 'south' },
-  { id: 'room_209', floorId: 'floor_2', number: '209', capacity: 2, x: 19.5, z: -2.6, side: 'north' },
-  { id: 'room_210', floorId: 'floor_2', number: '210', capacity: 4, x: 22.75, z: 2.6, side: 'south' },
-];
+function buildSeedRooms(): Room[] {
+  return FLOORS.flatMap((floor) =>
+    ROOM_PLAN.map((slot, i) => {
+      const number = `${floor.number}0${i + 1}`;
+      return {
+        id: `room_${number}`,
+        floorId: floor.id,
+        number,
+        capacity: slot.capacity,
+        x: -6.5 + 3.25 * i,
+        z: i % 2 === 0 ? -2.6 : 2.6,
+        side: i % 2 === 0 ? ('north' as const) : ('south' as const),
+      };
+    }),
+  );
+}
+
+export const ROOMS: Room[] = buildSeedRooms();
+
+/** The floor the demo opens on: the one the duty ring runs through. */
+export const LIVE_FLOOR_ID = 'floor_2';
 
 export const USERS: User[] = [
   { id: 'u_aziz', name: 'Aziz Karimov', email: 'student@yotoqhonam.demo', roomId: 'room_205', role: 'student', initials: 'AK' },
@@ -72,7 +100,9 @@ export const USERS: User[] = [
   { id: 'u_yulduz', name: 'Yulduz Olimova', email: 'yulduz@yotoqhonam.demo', roomId: 'room_203', role: 'student', initials: 'YO' },
   { id: 'u_aziz209', name: 'Azizbek Kadirov', email: 'aziz209@yotoqhonam.demo', roomId: 'room_209', role: 'student', initials: 'AK' },
 
-  { id: 'u_admin', name: 'Nodirbek Sattorov', email: 'admin@yotoqhonam.demo', roomId: 'room_203', role: 'admin', initials: 'NS' },
+  // The warden runs the whole residence, so there is no room here on purpose —
+  // `User.roomId` is null for staff and the console never scopes to one room.
+  { id: 'u_admin', name: 'Nodirbek Sattorov', email: 'admin@yotoqhonam.demo', roomId: null, role: 'admin', initials: 'NS' },
 ];
 
 export const CHECKLIST = [
@@ -127,7 +157,7 @@ export function makeDutiesForDay(roomIds: string[]): Duty[] {
 export function createInitialDemoState(): DemoState {
   const students = buildStudents();
   return {
-    version: 2,
+    version: 3,
     currentUserId: 'u_aziz',
     queue: [...DEMO_QUEUE],
     activeDutyId: 'duty_room_205_' + addDaysISO(todayISO(), 0),
@@ -151,12 +181,13 @@ export function createInitialDemoState(): DemoState {
     beds: assignSeedBeds(buildBeds(ROOMS), students),
     students,
     assignmentHistory: [],
+    payments: buildSeedPayments(students),
   };
 }
 
 export const DEMO_ACCOUNTS = [
-  { email: 'student@yotoqhonam.demo', label: 'Aziz Karimov', hint: 'Room 205 · student' },
-  { email: 'admin@yotoqhonam.demo', label: 'Nodirbek Sattorov', hint: 'Floor 2 · admin' },
+  { email: 'admin@yotoqhonam.demo', label: 'Nodirbek Sattorov', hint: 'Butun bino boshqaruvi · 4 ta qavat' },
+  { email: 'student@yotoqhonam.demo', label: 'Aziz Karimov', hint: '205-xona · Talaba' },
 ];
 
 /** Demo-only gate. Any password of 4+ characters is accepted, so the
@@ -179,6 +210,22 @@ const FACULTIES = [
 ];
 const UNIVERSITIES = ['Toshkent davlat universiteti', 'O‘zbekiston milliy universiteti', 'SamDU'];
 
+/**
+ * Names for the residents who have no demo login. The demo only needs a couple
+ * of accounts to sign in with; the rest of the residence still has to be
+ * populated for occupancy, payments and the register to mean anything.
+ */
+const FIRST_NAMES = [
+  'Aziz', 'Bek', 'Ali', 'Timur', 'Sherzod', 'Dilnoza', 'Jasur', 'Madina', 'Oybek', 'Nodira',
+  'Sardor', 'Kamila', 'Rustam', 'Zarina', 'Hasan', 'Sanjar', 'Gulnora', 'Abbos', 'Elnora', 'Laziz',
+  'Malika', 'Jasurbek', 'Yulduz', 'Azizbek', 'Sabina', 'Bobur', 'Davron', 'Kamola', 'Nurbek', 'Sitora',
+];
+const LAST_NAMES = [
+  'Karimov', 'Ismoilov', 'Nazarov', 'Saidov', 'Rahimov', 'Tursunova', 'Eshonqulov', 'Qo‘ldosheva',
+  'Toshev', 'Alieva', 'Umarov', 'Yuldasheva', 'Yoldoshev', 'Xolmatova', 'Boboyev', 'Mirzayev',
+  'Shokirova', 'Ne‘matov', 'Jurayeva', 'Norqulov', 'Sobirova', 'Mamatov',
+];
+
 /** One bed per unit of capacity, all vacant. Beds are numbered from 1. */
 export function buildBeds(rooms: Room[]): Bed[] {
   return rooms.flatMap((room) =>
@@ -191,36 +238,139 @@ export function buildBeds(rooms: Room[]): Bed[] {
   );
 }
 
-/** Every seeded resident, carrying a link back to its demo auth account. */
-export function buildStudents(users: User[] = USERS): Student[] {
-  return users
+function contactFor(index: number): { phone: string; studentId: string } {
+  return {
+    phone: `+998 9${(1 + (index % 9))}${String(1000000 + index * 7919).slice(0, 7)}`,
+    studentId: `22${String(1000 + index * 13).padStart(4, '0')}`,
+  };
+}
+
+function detailsFor(index: number) {
+  return {
+    ...contactFor(index),
+    university: UNIVERSITIES[index % UNIVERSITIES.length],
+    faculty: FACULTIES[index % FACULTIES.length],
+    course: (index % 4) + 1,
+  };
+}
+
+/** How many beds stay empty so the register shows free places to fill. */
+function fillCountFor(room: Room, index: number): number {
+  return index % 4 === 3 ? room.capacity - 1 : room.capacity;
+}
+
+/** Deterministic name for the n-th generated resident, with no repeats. */
+function generatedName(n: number): string {
+  return `${FIRST_NAMES[n % FIRST_NAMES.length]} ${
+    LAST_NAMES[Math.floor(n / FIRST_NAMES.length) % LAST_NAMES.length]
+  }`;
+}
+
+/**
+ * Every resident of the residence: first the demo accounts, then as many
+ * generated residents as the free beds need. Deterministic, so the demo world is
+ * the same on every load and a fresh clone matches a returning visit.
+ */
+export function buildStudents(users: User[] = USERS, rooms: Room[] = ROOMS): Student[] {
+  const fromAccounts: Student[] = users
     .filter((u) => u.role === 'student')
     .map((u, i) => ({
       id: `stu_${u.id.replace(/^u_/, '')}`,
       name: u.name,
       initials: u.initials,
       email: u.email,
-      phone: `+998 9${(1 + (i % 9))}${String(1000000 + i * 7919).slice(0, 7)}`,
-      studentId: `22${String(1000 + i * 13).padStart(4, '0')}`,
-      university: UNIVERSITIES[i % UNIVERSITIES.length],
-      faculty: FACULTIES[i % FACULTIES.length],
-      course: (i % 4) + 1,
+      ...detailsFor(i),
       status: 'active' as const,
       userId: u.id,
     }));
+
+  // The demo accounts already claim a bed each, so only the *remaining* seats of
+  // the fill plan need a generated resident. Generating a full plan's worth
+  // instead would leave records that no bed points at — students who do not
+  // exist anywhere in the app but still appear in the register and the ledger.
+  const target = Math.max(0, rooms.reduce((sum, room, i) => sum + fillCountFor(room, i), 0) - fromAccounts.length);
+
+  const taken = new Set(fromAccounts.map((s) => s.name));
+  const filler: Student[] = [];
+  let n = 0;
+  for (const [index, room] of rooms.entries()) {
+    if (filler.length >= target) break;
+    for (let i = 0; i < fillCountFor(room, index) && filler.length < target; i += 1) {
+      let name = generatedName(n);
+      while (taken.has(name)) {
+        n += 1;
+        name = generatedName(n);
+      }
+      n += 1;
+      taken.add(name);
+      filler.push({
+        id: `stu_gen_${filler.length + 1}`,
+        name,
+        initials: initialsOf(name),
+        ...detailsFor(fromAccounts.length + filler.length),
+        status: 'active',
+      });
+    }
+  }
+
+  return [...fromAccounts, ...filler];
 }
 
 /**
- * Places the seeded students into the first free bed of their seeded room, in
- * order. This is what makes occupancy derivable from `Bed.studentId` alone.
+ * Places the seeded students into the beds. Residents with a demo account go to
+ * the room that account points at, so room 205 keeps its four named residents;
+ * everyone else fills the remaining beds in order. This is what makes occupancy
+ * derivable from `Bed.studentId` alone.
  */
 export function assignSeedBeds(beds: Bed[], students: Student[], users: User[] = USERS): Bed[] {
   const next = beds.map((b) => ({ ...b }));
+  const taken = new Set<string>();
+  const seat = (roomId: string, studentId: string) => {
+    const target = next.find((b) => b.roomId === roomId && b.studentId === null);
+    if (!target) return false;
+    target.studentId = studentId;
+    taken.add(studentId);
+    return true;
+  };
+
   for (const student of students) {
+    if (!student.userId) continue;
     const owner = users.find((u) => u.id === student.userId);
-    if (!owner) continue;
-    const target = next.find((b) => b.roomId === owner.roomId && b.studentId === null);
-    if (target) target.studentId = student.id;
+    if (owner?.roomId) seat(owner.roomId, student.id);
+  }
+  for (const student of students) {
+    if (taken.has(student.id)) continue;
+    const target = next.find((b) => b.studentId === null);
+    if (!target) break;
+    target.studentId = student.id;
+    taken.add(student.id);
   }
   return next;
+}
+
+/** Monthly rent charged in the demo, in UZS. */
+export const MONTHLY_FEE = 350_000;
+
+/**
+ * A payment ledger the warden can act on: most residents are up to date, a
+ * tenth are one or two months behind, another tenth have never paid, and the
+ * rest have paid a term in advance.
+ */
+export function buildSeedPayments(students: Student[], now = monthKey()): Payment[] {
+  return students.flatMap((student, i) => {
+    const kind = i % 10;
+    if (kind === 8) return []; // never paid — the warden has to chase it
+    const arrears = kind === 6 ? 2 : kind === 7 ? 1 : 0;
+    const months = kind === 9 ? 12 : 6 + (i % 4);
+    return [
+      {
+        id: `pay_${student.id}_1`,
+        studentId: student.id,
+        fromMonth: addMonths(now, -(months - 1 + arrears)),
+        months,
+        monthlyFee: MONTHLY_FEE,
+        paidAt: `${addDaysISO(todayISO(), -(9 + (i % 27)))}T09:00:00.000Z`,
+      },
+    ];
+  });
 }
