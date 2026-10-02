@@ -1,4 +1,13 @@
-import type { DemoState, Dormitory, Duty, Floor, Room, User } from './types';
+import type {
+  Bed,
+  DemoState,
+  Dormitory,
+  Duty,
+  Floor,
+  Room,
+  Student,
+  User,
+} from './types';
 import { addDaysISO, initialsOf, todayISO } from '../lib/utils';
 
 export const DORMITORY: Dormitory = {
@@ -102,9 +111,23 @@ function makeDuty(roomId: string, offsetDays: number, status: Duty['status']): D
  */
 export const DEMO_QUEUE = ['room_204', 'room_205', 'room_206', 'room_207'];
 
+/**
+ * A day of duties for an arbitrary set of rooms. Used on first run and whenever
+ * the app is opened on a new calendar day, so the rota always has a live ring
+ * without discarding the registry.
+ */
+export function makeDutiesForDay(roomIds: string[]): Duty[] {
+  return roomIds.flatMap((roomId) => [
+    makeDuty(roomId, -2, 'completed'),
+    makeDuty(roomId, -1, 'completed'),
+    makeDuty(roomId, 0, 'pending'),
+  ]);
+}
+
 export function createInitialDemoState(): DemoState {
+  const students = buildStudents();
   return {
-    version: 1,
+    version: 2,
     currentUserId: 'u_aziz',
     queue: [...DEMO_QUEUE],
     activeDutyId: 'duty_room_205_' + addDaysISO(todayISO(), 0),
@@ -120,6 +143,14 @@ export function createInitialDemoState(): DemoState {
     ],
     reports: [],
     skippedRoomIds: [],
+
+    dormitories: [{ ...DORMITORY }],
+    activeDormitoryId: DORMITORY.id,
+    floors: FLOORS.map((f) => ({ ...f })),
+    rooms: ROOMS.map((r) => ({ ...r })),
+    beds: assignSeedBeds(buildBeds(ROOMS), students),
+    students,
+    assignmentHistory: [],
   };
 }
 
@@ -132,8 +163,64 @@ export const DEMO_ACCOUNTS = [
  *  flow can be tried instantly — swap for a real provider after the MVP. */
 export const DEMO_PASSWORD_MIN = 4;
 
-export function residentsOf(roomId: string): User[] {
-  return USERS.filter((u) => u.roomId === roomId && u.role !== 'admin');
+export const ALL_USERS_WITH_INITIALS: User[] = USERS.map((u) => ({ ...u, initials: initialsOf(u.name) }));
+
+/* -------------------------------------------------------------------------- */
+/* Registry seeds — derived from the constants above so the demo world is byte  */
+/* for byte what it was before the store existed.                             */
+/* -------------------------------------------------------------------------- */
+
+const FACULTIES = [
+  'Axborot texnologiyalari',
+  'Matematika va fizika',
+  'Filologiya',
+  'Iqtisodiyot',
+  'Muhandislik',
+];
+const UNIVERSITIES = ['Toshkent davlat universiteti', 'O‘zbekiston milliy universiteti', 'SamDU'];
+
+/** One bed per unit of capacity, all vacant. Beds are numbered from 1. */
+export function buildBeds(rooms: Room[]): Bed[] {
+  return rooms.flatMap((room) =>
+    Array.from({ length: room.capacity }, (_, i) => ({
+      id: `bed_${room.id}_${i + 1}`,
+      roomId: room.id,
+      number: i + 1,
+      studentId: null,
+    })),
+  );
 }
 
-export const ALL_USERS_WITH_INITIALS: User[] = USERS.map((u) => ({ ...u, initials: initialsOf(u.name) }));
+/** Every seeded resident, carrying a link back to its demo auth account. */
+export function buildStudents(users: User[] = USERS): Student[] {
+  return users
+    .filter((u) => u.role === 'student')
+    .map((u, i) => ({
+      id: `stu_${u.id.replace(/^u_/, '')}`,
+      name: u.name,
+      initials: u.initials,
+      email: u.email,
+      phone: `+998 9${(1 + (i % 9))}${String(1000000 + i * 7919).slice(0, 7)}`,
+      studentId: `22${String(1000 + i * 13).padStart(4, '0')}`,
+      university: UNIVERSITIES[i % UNIVERSITIES.length],
+      faculty: FACULTIES[i % FACULTIES.length],
+      course: (i % 4) + 1,
+      status: 'active' as const,
+      userId: u.id,
+    }));
+}
+
+/**
+ * Places the seeded students into the first free bed of their seeded room, in
+ * order. This is what makes occupancy derivable from `Bed.studentId` alone.
+ */
+export function assignSeedBeds(beds: Bed[], students: Student[], users: User[] = USERS): Bed[] {
+  const next = beds.map((b) => ({ ...b }));
+  for (const student of students) {
+    const owner = users.find((u) => u.id === student.userId);
+    if (!owner) continue;
+    const target = next.find((b) => b.roomId === owner.roomId && b.studentId === null);
+    if (target) target.studentId = student.id;
+  }
+  return next;
+}

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Camera, Check, ImageOff, RotateCcw, Trash2, Upload } from 'lucide-react';
-import { ROOMS, residentsOf } from '../data/mock';
 import { getNextDutyRoom, ROOM_VISUALS } from '../data/dutyQueue';
 import { useDormStore } from '../store/dormStore';
+import { useAllRooms, useDutyRing, useResidents } from '../store/useRegistry';
 import { compressImage, isImage, MAX_UPLOAD_BYTES } from '../lib/image';
 import { useReducedMotion } from '../hooks/useMedia';
 import { Button, ButtonLink } from '../components/ui/Button';
@@ -21,7 +21,6 @@ export default function DutyReportPage() {
 
   const duties = useDormStore((s) => s.duties);
   const reports = useDormStore((s) => s.reports);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const completeDuty = useDormStore((s) => s.completeDuty);
 
@@ -39,13 +38,19 @@ export default function DutyReportPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
-  const ring = useMemo(
-    () => queue.map((q) => ROOMS.find((r) => r.id === q)).filter((r): r is Room => Boolean(r)),
-    [queue],
-  );
-  const room = ROOMS.find((r) => r.id === activeDuty?.roomId) ?? null;
+  const ring = useDutyRing();
+  const allRooms = useAllRooms();
+  const room = allRooms.find((r) => r.id === activeDuty?.roomId) ?? null;
   const nextRoom = getNextDutyRoom(activeDuty?.roomId ?? '', ring);
   const existingReport = reports.find((r) => r.dutyId === activeDuty?.id) ?? null;
+
+  // Once handed over, the "from" room is the snapshot, not whatever the ring
+  // has advanced to since.
+  const handoverFrom = handover ? allRooms.find((r) => r.id === handover.fromId) ?? room : room;
+  const handoverTo = handover ? allRooms.find((r) => r.id === handover.toId) ?? nextRoom : nextRoom;
+  const shownResidents = useResidents(
+    stage === 'handover' ? (handoverFrom?.id ?? null) : (room?.id ?? null),
+  );
 
   // Already closed → show the handover that already happened.
   useEffect(() => {
@@ -122,10 +127,8 @@ export default function DutyReportPage() {
     );
   }
 
-  // Once handed over, the "from" room is the snapshot, not whatever the ring
-  // has advanced to since.
-  const handoverFrom = ROOMS.find((r) => r.id === handover?.fromId) ?? room;
-  const handoverTo = ROOMS.find((r) => r.id === handover?.toId) ?? nextRoom;
+  // Past the guard above `room` is definitely present, so the snapshot room is too.
+  const fromRoom = handoverFrom ?? room;
 
   return (
     <div className="space-y-8">
@@ -145,7 +148,7 @@ export default function DutyReportPage() {
               color: ROOM_VISUALS.duty_today.text,
             }}
           >
-            {stage === 'handover' ? handoverFrom.number : room.number}
+            {(stage === 'handover' ? handoverFrom?.number : room.number)}
           </span>
           <div>
             <h1 className="font-display text-display-sm font-semibold leading-[1] text-text">
@@ -153,7 +156,7 @@ export default function DutyReportPage() {
             </h1>
             <p className="mt-2 text-sm text-text-mist">
               {formatShortDate(activeDuty.date)} · {activeDuty.windowStart}–{activeDuty.windowEnd} ·{' '}
-              {residentsOf((stage === 'handover' ? handoverFrom : room).id).length} residents
+              {shownResidents.length} residents
             </p>
           </div>
         </div>
@@ -164,7 +167,7 @@ export default function DutyReportPage() {
           <HandoverStage
             key="handover"
             reduced={reduced}
-            fromRoom={handoverFrom}
+            fromRoom={fromRoom}
             toRoom={handoverTo}
             note={note}
             photo={photo ?? existingReport?.photoUrl ?? null}

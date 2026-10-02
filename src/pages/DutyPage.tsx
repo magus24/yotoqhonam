@@ -2,35 +2,32 @@ import { useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Camera, Check, Circle, Play } from 'lucide-react';
-import { ROOMS, residentsOf } from '../data/mock';
 import { getNextDutyRoom, ROOM_VISUALS } from '../data/dutyQueue';
 import { useDormStore } from '../store/dormStore';
+import { useAllRooms, useDutyRing, useResidents } from '../store/useRegistry';
 import { useReducedMotion } from '../hooks/useMedia';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { DutyStamp, DutyTimeline } from '../components/duty/DutyTimeline';
 import { EmptyState, ProgressBar } from '../components/ui/Primitives';
 import { toast } from '../components/ui/Toast';
 import { cn, formatShortDate, todayISO } from '../lib/utils';
-import type { Room } from '../data/types';
 
 export default function DutyPage() {
   const navigate = useNavigate();
   const reduced = useReducedMotion();
 
   const duties = useDormStore((s) => s.duties);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const setActiveDuty = useDormStore((s) => s.setActiveDuty);
   const startDuty = useDormStore((s) => s.startDuty);
   const toggleChecklistItem = useDormStore((s) => s.toggleChecklistItem);
 
   const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
-  const ring = useMemo(
-    () => queue.map((q) => ROOMS.find((r) => r.id === q)).filter((r): r is Room => Boolean(r)),
-    [queue],
-  );
+  const ring = useDutyRing();
+  const allRooms = useAllRooms();
 
-  const room = ROOMS.find((r) => r.id === activeDuty?.roomId) ?? null;
+  const room = allRooms.find((r) => r.id === activeDuty?.roomId) ?? null;
+  const residents = useResidents(room?.id ?? null);
   const nextRoom = getNextDutyRoom(activeDuty?.roomId ?? '', ring);
   const otherDuties = duties
     .filter((d) => d.date === todayISO() && d.id !== activeDuty?.id)
@@ -98,7 +95,7 @@ export default function DutyPage() {
               {activeDuty.windowStart} — {activeDuty.windowEnd}
             </h1>
             <p className="mt-2 text-sm text-text-mist">
-              {residentsOf(room.id).length} residents · {room.side} side of the corridor
+              {residents.length} residents · {room.side} side of the corridor
             </p>
           </div>
         </div>
@@ -224,7 +221,7 @@ export default function DutyPage() {
               <p className="engrave">Also on duty tonight</p>
               <ul className="mt-3.5 space-y-1.5">
                 {otherDuties.map((d) => {
-                  const r = ROOMS.find((x) => x.id === d.roomId);
+                  const r = allRooms.find((x) => x.id === d.roomId);
                   if (!r) return null;
                   return (
                     <li key={d.id}>

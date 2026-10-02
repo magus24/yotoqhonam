@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, KeyRound } from 'lucide-react';
-import { DEMO_ACCOUNTS, DEMO_PASSWORD_MIN, ROOMS } from '../data/mock';
+import { DEMO_ACCOUNTS, DEMO_PASSWORD_MIN } from '../data/mock';
+import { useAllRooms, useFloors, useOccupancy, useRoom } from '../store/useRegistry';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
 import { useReducedMotion } from '../hooks/useMedia';
@@ -23,6 +24,8 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  const occupancy = useOccupancy();
+  const floors = useFloors();
 
   const from = (location.state as { from?: string } | null)?.from ?? '/dashboard';
 
@@ -76,9 +79,9 @@ export default function Login() {
             </p>
           </div>
           <dl className="grid grid-cols-3 gap-4 border-t border-graphite-950/10 pt-6">
-            <Stat value="10" label="Rooms" />
-            <Stat value="24" label="Residents" />
-            <Stat value="3" label="Floors" />
+            <Stat value={String(occupancy.rooms)} label="Rooms" />
+            <Stat value={String(occupancy.occupied)} label="Residents" />
+            <Stat value={String(floors.length)} label="Floors" />
           </dl>
         </div>
       </aside>
@@ -190,7 +193,8 @@ function StageBackdrop() {
   const reduced = useReducedMotion();
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const duty = useDormStore((s) => s.duties.find((d) => d.id === activeDutyId) ?? null);
-  const room = ROOMS.find((r) => r.id === duty?.roomId) ?? ROOMS[4]!;
+  const rooms = useAllRooms();
+  const room = useRoom(duty?.roomId ?? null) ?? rooms[0] ?? null;
 
   return (
     <>

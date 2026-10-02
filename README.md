@@ -1,7 +1,7 @@
 # Yotoqhonam
 
 **Talabalar turar joyini raqamli boshqarish platformasi** — front-end MVP for managing a
-student residence, structured as `Yotoqxona → Qavat → Xona → Talaba`.
+student residence, structured as `Yotoqxona → Qavat → Xona → Joy → Talaba`.
 
 **Live demo:** https://magus24.github.io/yotoqhonam/
 
@@ -16,10 +16,11 @@ Demo accounts (any password of 4+ characters):
 
 ## What this is
 
-A single register for the whole residence. A resident belongs to a room, a room to a floor,
-a floor to one dormitory — so occupancy and status are always one click away instead of a
-paper list. On top of that the floor runs its duty rotation on its own: when a room closes
-its duty it passes the ring to the next room, and one photo closes it out.
+One persisted register for the whole estate. A student occupies a **bed**, a bed belongs to
+a room, a room to a floor, a floor to a dormitory — so occupancy, placement and status are
+always one click away instead of a paper list. On top of that the floor runs its duty
+rotation on its own: when a room closes its duty it passes the ring to the next room, and one
+photo closes it out.
 
 ## What is not built yet
 
@@ -59,15 +60,43 @@ runs from any repository sub-path and survives forks and renames.
   cinematic intro on first open; graceful fallback when WebGL is unavailable
 - **Duty** — checklist, photo upload, and a handover snapshot that keeps `From`/`To`
   consistent as the ring rotates `205 → 206 → 207 → 204 → 205`
-- **Warden console** — `Talabalar`, `Xonalar`, `Qavatlar`, `Navbatchilik`, `Hisobotlar`,
-  and a build-status tab that spells out what exists and what does not
+- **Warden console** — a residence selector plus `Talabalar`, `Joylar`, `Xonalar`, `Qavatlar`,
+  `Navbatchilik`, `Hisobotlar` and a build-status tab that spells out what exists and what
+  does not
+
+## The warden console
+
+Everything below writes to the one registry, so a change is reflected on the dashboard, the
+floor plan, the room page, the 3D scene and the duty rota immediately — and survives a
+reload, because the store persists on every mutation.
+
+| Tab         | What you can do                                                                  |
+| ----------- | -------------------------------------------------------------------------------- |
+| `Yotoqxona` | Rename the residence, add another one, delete an empty one                       |
+| `Qavatlar`  | Add, rename and delete floors; add a room to a floor; see per-floor occupancy     |
+| `Xonalar`   | Create and edit rooms — number, capacity, and whether they are on the rotation     |
+| `Joylar`    | The bed grid of the selected residence: green is taken, dashed is free            |
+| `Talabalar` | Create and edit students, place them in a free bed, move them, or evict them      |
+| `Navbatchilik` / `Hisobotlar` | The duty log and the filed photo reports for this residence           |
+| `Stack`     | Build status and what a backend would replace                                     |
+
+The rules the store enforces, not just the UI: room and floor numbers are unique within
+their parent, capacity stays between 1 and 12 and can never drop below the beds already
+handed out, a bed holds at most one student, a floor with rooms cannot be deleted, an
+occupied room must be emptied first, and the last residence cannot be removed. Every
+placement, move and eviction is recorded in an assignment history.
+
+Occupancy is always derived from `Bed.studentId`, never copied onto the student record, so a
+place cannot show two people. When two or more residences exist, the selector in the header
+scopes the tabs, the statistics and the history to the selected one.
 
 ## Verification
 
-104 automated browser checks pass against the deployed site, with 0 console errors, no failed
-network requests, 0 WCAG AA contrast failures across all routes, and no horizontal overflow
-at 390 / 834 / 1440. The duty ring is verified end-to-end including the photo flow, and the
-WebGL-disabled fallback is covered on every route.
+Automated browser checks pass against the build, with 0 console errors and no horizontal
+overflow at 390 / 834 / 1440 on every route and Admin tab. Covered: the warden CRUD
+lifecycle (create, place, move, evict, delete), residence selector scoping, the v1 → v2
+storage migration and the calendar-day rollover, the duty ring end-to-end including the photo
+flow, and the WebGL-disabled fallback.
 
 ## Known dependency advisories
 

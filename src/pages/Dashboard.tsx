@@ -2,10 +2,25 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowRight, CalendarClock, Camera, ChevronRight, RotateCcw, Users } from 'lucide-react';
-import { DORMITORY, FLOORS, ROOMS, residentsOf } from '../data/mock';
 import { getNextDutyRoom, resolveRoomState, ROOM_STATE_ORDER, ROOM_VISUALS } from '../data/dutyQueue';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
+import {
+  useAllRooms,
+  useDormitory,
+  useDutyRing,
+  useFloorResidents,
+  useFloor,
+  useFloors,
+  useOccupancy,
+  usePlacements,
+  useResidents,
+  useRoom,
+  useRoomOccupant,
+  useStudents,
+  useUserBed,
+  useUserRoom,
+} from '../store/useRegistry';
 import { useReducedMotion } from '../hooks/useMedia';
 import { DeferredFloorCanvas } from '../components/layout/AppShell';
 import { Button, ButtonLink } from '../components/ui/Button';
@@ -26,42 +41,35 @@ export default function Dashboard() {
 
   const duties = useDormStore((s) => s.duties);
   const reports = useDormStore((s) => s.reports);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const resetDemo = useDormStore((s) => s.resetDemo);
 
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
-  const activeRoom = ROOMS.find((r) => r.id === activeDuty?.roomId) ?? null;
-  const ownRoom = ROOMS.find((r) => r.id === user?.roomId) ?? null;
-  const ring = useMemo(() => queue.map((id) => ROOMS.find((r) => r.id === id)).filter((r): r is Room => Boolean(r)), [queue]);
+
+  const dormitory = useDormitory();
+  const floors = useFloors();
+  const rooms = useAllRooms();
+  const ring = useDutyRing();
+  const occupancy = useOccupancy();
+  const ownRoom = useUserRoom(user);
+  const ownBed = useUserBed(user);
+  const ownResidents = useResidents(ownRoom?.id ?? null);
+  const students = useStudents();
+
+  const activeRoom = useRoom(activeDuty?.roomId ?? null);
   const nextRoom = getNextDutyRoom(activeRoom?.id ?? '', ring);
 
-  const totalResidents = useMemo(
-    () => ROOMS.reduce((sum, r) => sum + residentsOf(r.id).length, 0),
-    [],
-  );
+  const totalResidents = occupancy.occupied;
+  const ownFloor = floors.find((f) => f.id === ownRoom?.floorId) ?? floors[0];
+  const floorNo = ownFloor?.number ?? 1;
 
-  const ownFloor = FLOORS.find((f) => f.id === ownRoom?.floorId) ?? FLOORS[1] ?? FLOORS[0];
-  const floorNo = ownFloor?.number ?? 2;
+  const floorResidents = useFloorResidents(ownFloor?.id);
+  const placements = usePlacements();
 
-  const registeredNames = useMemo(() => {
-    const set = new Set<string>();
-    ROOMS.forEach((r) => residentsOf(r.id).forEach((p) => set.add(p.name)));
-    return set;
-  }, []);
-
-  const floorResidents = useMemo(
-    () =>
-      ROOMS.flatMap((r) => residentsOf(r.id))
-        .filter((p) => ROOMS.find((r) => r.id === p.roomId)?.floorId === ownFloor?.id)
-        .sort((a, b) => Number(a.id === user?.id) - Number(b.id === user?.id)),
-    [ownFloor?.id, user?.id],
-  );
-
-  const occupiedRooms = useMemo(() => ROOMS.filter((r) => residentsOf(r.id).length > 0).length, []);
-  const totalBeds = useMemo(() => ROOMS.reduce((sum, r) => sum + r.capacity, 0), []);
-  const bedsFree = totalBeds - totalResidents;
+  const occupiedRooms = occupancy.occupiedRooms;
+  const totalBeds = occupancy.capacity;
+  const bedsFree = occupancy.free;
 
   const completedToday = duties.filter((d) => d.date === todayISO() && d.status === 'completed').length;
   const progress = duties.length
@@ -76,7 +84,7 @@ export default function Dashboard() {
   if (!user) return null;
 
   const HIERARCHY = [
-    { label: 'Yotoqxona', value: DORMITORY.name, to: '/admin' },
+    { label: 'Yotoqxona', value: dormitory?.name ?? '-', to: '/admin' },
     { label: 'Qavat', value: `Floor ${floorNo}`, to: '/floor' },
     {
       label: 'Xona',
@@ -147,10 +155,20 @@ export default function Dashboard() {
             Residence register
           </SectionTitle>
           <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-6 sm:grid-cols-4">
-            <Figure label="Students registered" value={totalResidents} sub={`${registeredNames.size} names on file`} />
-            <Figure label="Rooms" value={ROOMS.length} sub={`${occupiedRooms} occupied`} />
-            <Figure label="Beds free" value={bedsFree} sub={`of ${totalBeds} on this floor`} />
-            <Figure label="Your room" value={ownRoom ? ownRoom.number : '—'} sub={ownRoom ? `${residentsOf(ownRoom.id).length} of ${ownRoom.capacity} filled` : 'unassigned'} />
+            <Figure label="Students registered" value={totalResidents} sub={`${students.length} names on file`} />
+            <Figure label="Rooms" value={rooms.length} sub={`${occupiedRooms} occupied`} />
+            <Figure label="Beds free" value={bedsFree} sub={`of ${totalBeds} in the residence`} />
+            <Figure
+              label="Your room"
+              value={ownRoom ? ownRoom.number : '—'}
+              sub={
+                ownRoom
+                  ? ownBed
+                    ? `joy ${ownBed.number} · ${ownRoom.capacity - ownResidents.length} bo‘sh`
+                    : `${ownResidents.length} of ${ownRoom.capacity} filled`
+                  : 'unassigned'
+              }
+            />
           </dl>
         </div>
 
@@ -161,16 +179,18 @@ export default function Dashboard() {
           <ul className="mt-5 space-y-2">
             {floorResidents.slice(0, 5).map((r) => (
               <li key={r.id} className="flex items-center gap-3">
-                <KeyTag initials={r.initials} tone={r.id === user.id ? 'brass' : 'default'} />
+                <KeyTag initials={r.initials} tone={r.userId === user.id ? 'brass' : 'default'} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm text-text">
                     {r.name}
-                    {r.id === user.id ? (
+                    {r.userId === user.id ? (
                       <span className="ml-2 text-[11px] font-medium text-mint-700">you</span>
                     ) : null}
                   </p>
                   <p className="truncate font-mono text-[11px] text-text-dim">
-                    {ROOMS.find((room) => room.id === r.roomId)?.number ?? '—'}
+                    {placements.get(r.id)
+                      ? `${placements.get(r.id)?.room?.number ?? '—'} · ${placements.get(r.id)?.bed.number}-joy`
+                      : 'joysiz'}
                   </p>
                 </div>
               </li>
@@ -204,7 +224,7 @@ export default function Dashboard() {
 
       {/* ---------------------------------------------------------------- */}
       <section className="space-y-4">
-        <SectionTitle hint={<span className="font-mono tabular-nums">{ROOMS.length} rooms</span>}>
+        <SectionTitle hint={<span className="font-mono tabular-nums">{rooms.length} rooms</span>}>
           Floor {floorNo} plan
         </SectionTitle>
         <FloorStage selectedRoomId={selectedRoomId} onSelect={setSelectedRoomId} reducedMotion={reduced} />
@@ -283,7 +303,7 @@ export default function Dashboard() {
           <ul className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {reports.slice(0, 6).map((rep) => {
               const duty = duties.find((d) => d.id === rep.dutyId);
-              const room = ROOMS.find((r) => r.id === duty?.roomId);
+              const room = rooms.find((r) => r.id === duty?.roomId);
               return (
                 <li key={rep.id} className="panel-quiet overflow-hidden">
                   <img
@@ -339,6 +359,8 @@ function DutyCard({
 }) {
   const reduced = useReducedMotion();
   const navigate = useNavigate();
+  const residents = useRoomOccupant(room.id);
+  const floor = useFloor(room.floorId);
   const isOpen = duty.status !== 'completed';
   const done = duty.completedItems.length;
   const pct = (done / Math.max(1, duty.checklist.length)) * 100;
@@ -372,7 +394,7 @@ function DutyCard({
               </p>
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-text-mist">
                 <CalendarClock className="size-3.5" strokeWidth={1.6} />
-                {residentsOf(room.id).length} residents · floor 2
+                {residents} residents{floor ? ` · floor ${floor.number}` : ''}
               </p>
             </div>
           </div>
@@ -437,18 +459,20 @@ function FloorStage({
 }) {
   const user = useAuthStore((s) => s.user);
   const duties = useDormStore((s) => s.duties);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
+  const rooms = useAllRooms();
+  const ring = useDutyRing();
+  const ownRoom = useUserRoom(user);
   const activeDuty = duties.find((d) => d.id === activeDutyId) ?? null;
-  const ring = queue.map((id) => ROOMS.find((r) => r.id === id)).filter((r): r is Room => Boolean(r));
   const nextRoom = getNextDutyRoom(activeDuty?.roomId ?? '', ring);
-  const selected = ROOMS.find((r) => r.id === selectedRoomId) ?? null;
+  const selected = useRoom(selectedRoomId);
+  const selectedOccupants = useRoomOccupant(selected?.id ?? null);
 
   const state = selected
     ? resolveRoomState(selected.id, {
         currentDutyRoomId: activeDuty?.roomId ?? null,
         nextDutyRoomId: nextRoom?.id ?? null,
-        ownRoomId: user?.roomId ?? null,
+        ownRoomId: ownRoom?.id ?? null,
         dutyStatus: activeDuty?.status ?? null,
       })
     : 'neutral';
@@ -458,11 +482,11 @@ function FloorStage({
       <div className="blueprint pointer-events-none absolute inset-0 opacity-30" />
       <div className="relative h-[22rem] sm:h-[26rem] lg:h-[30rem]">
         <DeferredFloorCanvas
-          rooms={ROOMS}
-          queue={queue}
+          rooms={rooms}
+          queue={ring.map((r) => r.id)}
           activeRoomId={activeDuty?.roomId ?? null}
           nextRoomId={nextRoom?.id ?? null}
-          ownRoomId={user?.roomId ?? null}
+          ownRoomId={ownRoom?.id ?? null}
           dutyStatus={activeDuty?.status ?? null}
           selectedRoomId={selectedRoomId}
           onSelect={onSelect}
@@ -491,7 +515,7 @@ function FloorStage({
 
       {selected ? (
         <p className="border-t border-graphite-950/[0.09] px-4 py-2.5 text-[11px] text-text-dim sm:px-5">
-          {residentsOf(selected.id).length} residents ·{' '}
+          {selectedOccupants} residents ·{' '}
           <span style={{ color: ROOM_VISUALS[state].text }}>{ROOM_VISUALS[state].label}</span>
         </p>
       ) : null}

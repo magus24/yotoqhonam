@@ -2,8 +2,8 @@ import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, Building2, MousePointer2 } from 'lucide-react';
-import { DORMITORY, FLOORS, ROOMS, USERS, DEMO_QUEUE, residentsOf } from '../data/mock';
 import { useReducedMotion } from '../hooks/useMedia';
+import { useAllRooms, useDormitory, useDutyRing, useFloors, useOccupancy, useResidents, useRoomResidentNames } from '../store/useRegistry';
 import { DeferredFloorCanvas } from '../components/layout/AppShell';
 import { ButtonLink } from '../components/ui/Button';
 import { RotationDiagram } from '../components/route/RotationDiagram';
@@ -11,6 +11,13 @@ import { RotationDiagram } from '../components/route/RotationDiagram';
 export default function Landing() {
   const reduced = useReducedMotion();
   const sectionRef = useRef<HTMLElement>(null);
+  const dormitory = useDormitory();
+  const floors = useFloors();
+  const rooms = useAllRooms();
+  const ring = useDutyRing();
+  const occupancy = useOccupancy();
+  const showcaseRoom = rooms.find((r) => r.number === '205') ?? rooms[0] ?? null;
+  const showcaseResidents = useResidents(showcaseRoom?.id ?? null);
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end start'] });
   const textY = useTransform(scrollYProgress, [0, 1], [0, 80]);
   const stageScale = useTransform(scrollYProgress, [0, 1], [1, 0.9]);
@@ -31,8 +38,8 @@ export default function Landing() {
           className="absolute inset-0 origin-[64%_48%]"
         >
           <DeferredFloorCanvas
-            rooms={ROOMS}
-            queue={DEMO_QUEUE}
+            rooms={rooms}
+            queue={ring.map((r) => r.id)}
             activeRoomId="room_205"
             nextRoomId="room_206"
             ownRoomId="room_205"
@@ -79,10 +86,11 @@ export default function Landing() {
 
             <ol className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm">
               {[
-                ['Yotoqxona', DORMITORY.name],
-                ['Qavat', 'Floor 2'],
-                ['Xona', 'Room 205'],
-                ['Talaba', residentsOf('room_205').length + ' students'],
+                ['Yotoqxona', dormitory?.name ?? '—'],
+                ['Qavat', `Floor ${floors[0]?.number ?? 1}`],
+                ['Xona', showcaseRoom ? `Room ${showcaseRoom.number}` : '—'],
+                ['Joy', `${showcaseResidents.length} band joy`],
+                ['Talaba', `${occupancy.occupied} students`],
               ].map(([label, value], i, arr) => (
                 <li key={label} className="flex items-center gap-2">
                   <span className="rounded-lg border border-line-strong bg-ink-900 px-2.5 py-1.5">
@@ -129,9 +137,12 @@ export default function Landing() {
 
 function RegisterSection() {
   const reduced = useReducedMotion();
-  const occupied = ROOMS.filter((r) => residentsOf(r.id).length > 0).length;
-  const beds = ROOMS.reduce((n, r) => n + residentsOf(r.id).length, 0);
-  const capacity = ROOMS.reduce((n, r) => n + r.capacity, 0);
+  const rooms = useAllRooms();
+  const occupancy = useOccupancy();
+  const residentsByRoom = useRoomResidentNames();
+  const occupied = occupancy.occupiedRooms;
+  const beds = occupancy.occupied;
+  const capacity = occupancy.capacity;
 
   return (
     <section className="relative border-t border-line px-5 py-20 sm:px-8 sm:py-28 lg:px-12">
@@ -147,9 +158,9 @@ function RegisterSection() {
               every screen follows.
             </p>
             <dl className="mt-9 grid grid-cols-3 gap-4 border-t border-line pt-6">
-              <Figure value={ROOMS.length} label="Rooms on floor 2" />
+              <Figure value={rooms.length} label="Rooms on the plan" />
               <Figure value={beds + '/' + capacity} label="Beds filled" />
-              <Figure value={occupied + '/' + ROOMS.length} label="Rooms occupied" />
+              <Figure value={occupied + '/' + rooms.length} label="Rooms occupied" />
             </dl>
             <p className="mt-4 text-xs text-text-dim">
               Demo data from the sample residence, not a live campus.
@@ -161,12 +172,12 @@ function RegisterSection() {
               <div className="flex items-baseline justify-between gap-4">
                 <p className="text-sm font-medium">Floor 2 register</p>
                 <p className="font-mono text-xs text-text-dim">
-                  {ROOMS.length} rooms · {beds} students
+                  {rooms.length} rooms · {beds} students
                 </p>
               </div>
               <ul className="mt-6 grid gap-2 sm:grid-cols-2">
-                {ROOMS.slice(0, 8).map((room, i) => {
-                  const people = residentsOf(room.id);
+                {rooms.slice(0, 8).map((room, i) => {
+                  const people = residentsByRoom.get(room.id) ?? [];
                   return (
                     <motion.li
                       key={room.id}
@@ -178,7 +189,7 @@ function RegisterSection() {
                     >
                       <span className="plate shrink-0 px-2 py-0.5 text-[11px]">{room.number}</span>
                       <span className="min-w-0 flex-1 truncate text-[13px] text-text-mist">
-                        {people.length ? people.map((p) => p.name.split(' ')[0]).join(', ') : 'Vacant'}
+                        {people.length ? people.join(', ') : 'Vacant'}
                       </span>
                       <span className="shrink-0 font-mono text-[11px] text-text-dim">
                         {people.length}/{room.capacity}
@@ -188,7 +199,7 @@ function RegisterSection() {
                 })}
               </ul>
               <p className="mt-5 border-t border-line pt-4 text-xs text-text-dim">
-                {ROOMS.length - 8} more rooms on the floor. Everything above comes from one array.
+                {Math.max(0, rooms.length - 8)} more rooms on the plan. Everything above comes from one registry.
               </p>
             </div>
           </div>
@@ -214,7 +225,7 @@ function Figure({ value, label }: { value: string | number; label: string }) {
 
 function DutySection() {
   const reduced = useReducedMotion();
-  const ring = DEMO_QUEUE.map((id) => ROOMS.find((r) => r.id === id)!).filter(Boolean);
+  const ring = useDutyRing();
 
   return (
     <section className="relative border-t border-line bg-ink-850 px-5 py-20 sm:px-8 sm:py-28 lg:px-12">
@@ -345,15 +356,19 @@ function ClosingSection() {
 }
 
 function SiteFooter() {
+  const dormitory = useDormitory();
+  const floors = useFloors();
+  const rooms = useAllRooms();
+  const occupancy = useOccupancy();
   return (
     <footer className="border-t border-line px-5 py-8 sm:px-8 lg:px-12">
       <div className="mx-auto flex max-w-6xl flex-col gap-2 text-xs text-text-dim sm:flex-row sm:items-center sm:justify-between">
         <p>
-          {DORMITORY.name} · {DORMITORY.address}
+          {dormitory?.name ?? '—'} · {dormitory?.address ?? ''}
         </p>
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span>
-            {FLOORS.length} floor · {ROOMS.length} rooms on floor 2 · {USERS.length - 1} students
+            {floors.length} qavat · {rooms.length} xona · {occupancy.occupied} talaba
           </span>
           <span className="text-text-mist">Demo build</span>
         </p>

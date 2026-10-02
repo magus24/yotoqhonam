@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Info } from 'lucide-react';
-import { ROOMS, residentsOf } from '../data/mock';
 import { getNextDutyRoom, resolveRoomState, ROOM_VISUALS, ROOM_STATE_ORDER } from '../data/dutyQueue';
+import { roomsOfFloor } from '../data/registry';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
+import { useAllRooms, useDutyRing, useFloors, useRoomOccupant, useUserRoom } from '../store/useRegistry';
 import { useReducedMotion } from '../hooks/useMedia';
 import { DeferredFloorCanvas } from '../components/layout/AppShell';
 import { Button, ButtonLink } from '../components/ui/Button';
@@ -12,39 +13,58 @@ import { RoomReadout } from '../components/three/FloorScene';
 import { RotationDiagram } from '../components/route/RotationDiagram';
 import { SectionTitle } from '../components/ui/Primitives';
 import { cn } from '../lib/utils';
-import type { Room } from '../data/types';
 
 export default function FloorPage() {
   const reduced = useReducedMotion();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const duties = useDormStore((s) => s.duties);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const reports = useDormStore((s) => s.reports);
+  const queue = useDormStore((s) => s.queue);
 
+  const [floorId, setFloorId] = useState<string | null>(null);
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [showRotation, setShowRotation] = useState(false);
 
-  const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
-  const ring = useMemo(
-    () => queue.map((id) => ROOMS.find((r) => r.id === id)).filter((r): r is Room => Boolean(r)),
-    [queue],
+  const floors = useFloors();
+  const allRooms = useAllRooms();
+  const ownRoom = useUserRoom(user);
+
+  /**
+   * The plan shows one floor at a time. Default to the floor the signed-in
+   * resident lives on, then to the first floor that actually has rooms, so a
+   * freshly created floor never greets the warden with an empty corridor.
+   */
+  const floor =
+    floors.find((f) => f.id === floorId) ??
+    floors.find((f) => f.id === ownRoom?.floorId) ??
+    floors.find((f) => allRooms.some((r) => r.floorId === f.id)) ??
+    floors[0] ??
+    null;
+
+  const rooms = useMemo(
+    () => (floor ? roomsOfFloor(allRooms, floor.id) : []),
+    [allRooms, floor],
   );
+
+  const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
+  const ring = useDutyRing();
   const nextRoom = getNextDutyRoom(activeDuty?.roomId ?? '', ring);
-  const selected = ROOMS.find((r) => r.id === selectedRoomId) ?? null;
+  const selected = useMemo(() => rooms.find((r) => r.id === selectedRoomId) ?? null, [rooms, selectedRoomId]);
+  const selectedOccupants = useRoomOccupant(selected?.id ?? null);
 
   const stateFor = (id: string) =>
     resolveRoomState(id, {
       currentDutyRoomId: activeDuty?.roomId ?? null,
       nextDutyRoomId: nextRoom?.id ?? null,
-      ownRoomId: user?.roomId ?? null,
+      ownRoomId: ownRoom?.id ?? null,
       dutyStatus: activeDuty?.status ?? null,
     });
 
   const counts = ROOM_STATE_ORDER.map((s) => ({
     state: s,
-    count: ROOMS.filter((r) => stateFor(r.id) === s).length,
+    count: rooms.filter((r) => stateFor(r.id) === s).length,
   })).filter((c) => c.count > 0);
 
   const hasReport = reports.some((r) => r.dutyId === activeDuty?.id);
@@ -53,28 +73,56 @@ export default function FloorPage() {
     <div className="space-y-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="engrave">Floor 2 · live plan</p>
-          <h1 className="mt-2.5 font-display text-display-sm font-semibold leading-[1] text-text">
-            Where the duty sits tonight
-          </h1>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowRotation((v) => !v)}
-            aria-expanded={showRotation}
-            icon={<Info className="size-3.5" strokeWidth={1.7} />}
+          <p className="engrave">
+          {floor ? `Floor ${floor.number} · live plan` : 'Live plan'}
+        </p>
+        <h1 className="mt-2.5 font-display text-display-sm font-semibold leading-[1] text-text">
+          Where the duty sits tonight
+        </h1>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {floors.length > 1 ? (
+          <div
+            className="no-scrollbar flex gap-1.5 overflow-x-auto"
+            role="group"
+            aria-label="Choose a floor"
           >
-            {showRotation ? 'Hide rotation' : 'Show rotation'}
+            {floors.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => {
+                  setFloorId(f.id);
+                  setSelectedRoomId(null);
+                }}
+                aria-pressed={f.id === floor?.id}
+                className={cn(
+                  'shrink-0 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors',
+                  f.id === floor?.id
+                    ? 'border-mint-600/35 bg-mint-400/12 text-mint-700'
+                    : 'border-graphite-950/10 text-text-mist hover:border-graphite-950/20 hover:text-text',
+                )}
+              >
+                {f.number}-qavat
+              </button>
+            ))}
+          </div>
+        ) : null}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setShowRotation((v) => !v)}
+          aria-expanded={showRotation}
+          icon={<Info className="size-3.5" strokeWidth={1.7} />}
+        >
+          {showRotation ? 'Hide rotation' : 'Show rotation'}
+        </Button>
+        {selected ? (
+          <Button size="sm" onClick={() => navigate(`/room/${selected.id}`)} icon={<ChevronRight className="size-3.5" />}>
+            Room {selected.number}
           </Button>
-          {selected ? (
-            <Button size="sm" onClick={() => navigate(`/room/${selected.id}`)} icon={<ChevronRight className="size-3.5" />}>
-              Room {selected.number}
-            </Button>
-          ) : null}
-        </div>
-      </header>
+        ) : null}
+      </div>
+    </header>
 
       {showRotation ? (
         <div className="animate-fade-up">
@@ -87,11 +135,11 @@ export default function FloorPage() {
           <div className="blueprint pointer-events-none absolute inset-0 opacity-30" />
           <div className="relative h-[24rem] sm:h-[30rem] lg:h-[36rem]">
             <DeferredFloorCanvas
-              rooms={ROOMS}
+              rooms={rooms}
               queue={queue}
               activeRoomId={activeDuty?.roomId ?? null}
               nextRoomId={nextRoom?.id ?? null}
-              ownRoomId={user?.roomId ?? null}
+              ownRoomId={ownRoom?.id ?? null}
               dutyStatus={activeDuty?.status ?? null}
               selectedRoomId={selectedRoomId}
               onSelect={setSelectedRoomId}
@@ -117,7 +165,7 @@ export default function FloorPage() {
           <RoomReadout
             room={selected}
             state={selected ? stateFor(selected.id) : 'neutral'}
-            residents={selected ? residentsOf(selected.id).length : 0}
+            residents={selectedOccupants}
             onOpen={selected ? () => navigate(`/room/${selected.id}`) : undefined}
           />
 
@@ -140,7 +188,7 @@ export default function FloorPage() {
           <div className="panel p-5">
             <SectionTitle>Quick jumps</SectionTitle>
             <ul className="mt-4 space-y-1.5">
-              {ROOMS.filter((r) => [activeDuty?.roomId, nextRoom?.id, user?.roomId].includes(r.id)).map((r) => (
+              {rooms.filter((r) => [activeDuty?.roomId, nextRoom?.id, ownRoom?.id].includes(r.id)).map((r) => (
                 <li key={r.id}>
                   <button
                     onClick={() => setSelectedRoomId(r.id)}
@@ -173,11 +221,11 @@ export default function FloorPage() {
       </div>
 
       <section className="panel p-5 sm:p-6">
-        <SectionTitle hint={<span className="font-mono text-xs text-text-dim">{ROOMS.length} rooms</span>}>
+        <SectionTitle hint={<span className="font-mono text-xs text-text-dim">{rooms.length} rooms</span>}>
           All rooms
         </SectionTitle>
         <ul className="mt-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {ROOMS.map((room) => {
+          {rooms.map((room) => {
             const state = stateFor(room.id);
             const duty = duties.find((d) => d.roomId === room.id && d.status !== 'completed');
             return (

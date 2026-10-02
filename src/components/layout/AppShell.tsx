@@ -4,7 +4,8 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Boxes, ClipboardCheck, LayoutGrid, LogOut, Users } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useDormStore } from '../../store/dormStore';
-import { ROOMS, residentsOf } from '../../data/mock';
+import { useDormitory, useFloor, useRoom, useUserRoom } from '../../store/useRegistry';
+import type { Room } from '../../data/types';
 import { cn, firstName } from '../../lib/utils';
 import { KeyTag } from '../ui/Primitives';
 import { ButtonLink } from '../ui/Button';
@@ -17,7 +18,7 @@ const FloorCanvas = lazy(() =>
 );
 
 export interface FloorCanvasProps {
-  rooms: typeof ROOMS;
+  rooms: Room[];
   queue: string[];
   activeRoomId: string | null;
   nextRoomId: string | null;
@@ -50,7 +51,7 @@ export function DeferredFloorCanvas(props: FloorCanvasProps) {
 
 const NAV = [
   { to: '/dashboard', label: 'Overview', Icon: LayoutGrid },
-  { to: '/floor', label: 'Floor 2', Icon: Boxes },
+  { to: '/floor', label: 'Floor plan', Icon: Boxes },
   { to: '/duty', label: 'Duty', Icon: ClipboardCheck },
   { to: '/admin', label: 'Admin', Icon: Users },
 ];
@@ -63,9 +64,11 @@ export function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const dormitory = useDormitory();
   const activeDuty = duties.find((d) => d.id === activeDutyId) ?? null;
-  const activeRoom = ROOMS.find((r) => r.id === activeDuty?.roomId) ?? null;
-  const ownRoom = ROOMS.find((r) => r.id === user?.roomId) ?? null;
+  const activeRoom = useRoom(activeDuty?.roomId);
+  const ownRoom = useUserRoom(user);
+  const activeFloor = useFloor(activeRoom?.floorId);
 
   useEffect(() => {
     document.getElementById('page-top')?.scrollIntoView({ block: 'start' });
@@ -118,7 +121,7 @@ export function AppShell() {
             <BrandMark />
           </div>
           <div className="hidden min-w-0 items-center gap-3 lg:flex">
-            <span className="engrave shrink-0">Yotoqhonam Residence · Floor 2</span>
+            <span className="engrave shrink-0">{dormitory?.name ?? 'Yotoqxona'}{activeFloor ? ` / ${activeFloor.name}` : ''}</span>
             {activeRoom ? (
               <span className="flex items-center gap-2 text-xs text-text-mist">
                 <span className="size-1 animate-pulse rounded-full bg-brass-400" />
@@ -255,5 +258,3 @@ function TabLink({ to, label, children }: { to: string; label: string; children:
     </NavLink>
   );
 }
-
-export { residentsOf };

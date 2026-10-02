@@ -33,11 +33,58 @@ export interface Room {
   id: ID;
   floorId: ID;
   number: string;
+  /** Mirrors the room's bed count. The store keeps the two in lockstep so
+   *  existing `room.capacity` readers (3D sizing, duty copy) stay correct. */
   capacity: number;
   /** Plan-space position: x = across the corridor, z = depth from corridor. */
   x: number;
   z: number;
   side: 'north' | 'south';
+}
+
+/**
+ * A bed is the unit a student actually occupies. Occupancy is derived from
+ * `Bed.studentId` — never from a second copy on Student or Room — so a place
+ * can only ever be held by one person.
+ */
+export interface Bed {
+  id: ID;
+  roomId: ID;
+  /** Bed number inside the room (1-based). Stable for the life of the bed. */
+  number: number;
+  /** Null when the place is vacant. */
+  studentId: ID | null;
+}
+
+export type StudentStatus = 'active' | 'moved_out';
+
+export interface Student {
+  id: ID;
+  name: string;
+  initials: string;
+  email?: string;
+  phone?: string;
+  /** University enrolment number. */
+  studentId?: string;
+  university?: string;
+  faculty?: string;
+  course?: number;
+  status: StudentStatus;
+  /** Links a resident record to its demo auth account, when one exists. */
+  userId?: ID;
+}
+
+/** History row written when a student leaves a place. */
+export interface AssignmentEvent {
+  id: ID;
+  studentId: ID;
+  roomId: ID;
+  bedId: ID;
+  bedNumber: number;
+  assignedAt: string;
+  endedAt: string | null;
+  /** 'moved' when the student was relocated to another bed, 'moved_out' when evicted. */
+  reason: 'assigned' | 'moved' | 'moved_out';
 }
 
 export interface DutyChecklistItem {
@@ -69,6 +116,7 @@ export interface DutyReport {
 
 /** Persisted, mutable slice of the demo world (localStorage). */
 export interface DemoState {
+  /** 2 = registry (dormitory/floors/rooms/beds/students) added to the v1 duty slice. */
   version: number;
   currentUserId: ID;
   queue: ID[];
@@ -76,4 +124,13 @@ export interface DemoState {
   duties: Duty[];
   reports: DutyReport[];
   skippedRoomIds: ID[];
+
+  /** The single source of truth for the residence hierarchy. */
+  dormitories: Dormitory[];
+  activeDormitoryId: ID;
+  floors: Floor[];
+  rooms: Room[];
+  beds: Bed[];
+  students: Student[];
+  assignmentHistory: AssignmentEvent[];
 }

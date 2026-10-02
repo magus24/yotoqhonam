@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import type { ID, Room } from '../../data/types';
 import { getNextDutyRoom } from '../../data/dutyQueue';
-import { residentsOf } from '../../data/mock';
+import { useFloor, useRoom, useRoomResidentNames } from '../../store/useRegistry';
 import { cn } from '../../lib/utils';
 
 /**
@@ -21,12 +21,16 @@ export function RotationDiagram({
   reducedMotion?: boolean;
 }) {
   const next = getNextDutyRoom(activeRoomId ?? rooms[0]?.id ?? '', rooms);
+  const residentNames = useRoomResidentNames();
+  const floor = useFloor(useRoom(rooms[0]?.id)?.floorId);
 
   return (
     <div className={cn('relative', className)}>
       <div className="panel grain overflow-hidden p-5 sm:p-7">
         <div className="flex items-baseline justify-between gap-4">
-          <p className="engrave">Tonight · Floor 2</p>
+          <p className="engrave">
+            Tonight{floor ? ` · ${floor.name}` : ''}
+          </p>
           <p className="font-mono text-xs tabular-nums text-text-dim">
             {rooms.length} in ring
           </p>
@@ -37,7 +41,7 @@ export function RotationDiagram({
             const isActive = room.id === activeRoomId;
             const isNext = room.id === next?.id;
             const last = i === rooms.length - 1;
-            const residents = residentsOf(room.id);
+            const names = residentNames.get(room.id) ?? [];
 
             return (
               <li key={room.id} className="relative flex gap-4 pb-1">
@@ -88,7 +92,7 @@ export function RotationDiagram({
                       {room.number}
                     </span>
                     <p className="text-sm text-text-mist">
-                      {residents.length} {residents.length === 1 ? 'resident' : 'residents'}
+                      {names.length} {names.length === 1 ? 'resident' : 'residents'}
                     </p>
                     {isActive ? (
                       <span className="ml-auto text-2xs font-semibold uppercase tracking-[0.18em] text-brass-600">
@@ -100,9 +104,7 @@ export function RotationDiagram({
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-1.5 truncate text-xs text-text-dim">
-                    {residents.map((r) => r.name.split(' ')[0]).join(', ')}
-                  </p>
+                  <p className="mt-1.5 truncate text-xs text-text-dim">{names.join(', ')}</p>
                 </div>
               </li>
             );
@@ -110,8 +112,10 @@ export function RotationDiagram({
         </ol>
 
         <p className="mt-1 border-t border-graphite-950/[0.09] pt-4 text-xs leading-relaxed text-text-dim text-pretty">
-          After room {next?.number ?? '206'} the ring returns to the first room. Nothing is hard-coded
-          — the order lives in one list.
+          {next
+            ? `After room ${next.number} the ring returns to the first room.`
+            : 'The ring has one room, so it closes on itself.'}{' '}
+          Nothing is hard-coded — the order lives in one list.
         </p>
       </div>
     </div>
@@ -131,6 +135,7 @@ export function RotationTicker({
   activeRoomId: ID | null;
   className?: string;
 }) {
+  const residentNames = useRoomResidentNames();
   const start = Math.max(0, rooms.findIndex((r) => r.id === activeRoomId));
   const ordered = [...rooms.slice(start), ...rooms.slice(0, start)];
 
@@ -139,6 +144,7 @@ export function RotationTicker({
       <ol className="flex items-stretch gap-0">
         {ordered.map((room, i) => {
           const isActive = room.id === activeRoomId;
+          const count = residentNames.get(room.id)?.length ?? 0;
           return (
             <li key={room.id} className="flex items-center">
               <div
@@ -158,7 +164,7 @@ export function RotationTicker({
                   {room.number}
                 </span>
                 <span className="text-[10px] text-text-dim">
-                  {residentsOf(room.id).length} residents
+                  {count} {count === 1 ? 'resident' : 'residents'}
                 </span>
               </div>
               {i < ordered.length - 1 ? (

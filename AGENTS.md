@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Front-end MVP for a student residence, structured as `Yotoqxona → Qavat → Xona → Talaba`.
+Front-end MVP for a student residence, structured as
+`Yotoqxona → Qavat → Xona → Joy → Talaba`.
 React 18 · Vite 5 · TypeScript · Tailwind 3 · React Router 6 (`HashRouter`) ·
 React Three Fiber · Zustand · Framer Motion.
 
@@ -28,7 +29,7 @@ CI runs `npm ci` → `npm run lint` → `npm run build`. The workflow fails on a
 **`@/*` is a fake alias.** `tsconfig.json` declares `paths: { "@/*": ["src/*"] }` but
 `vite.config.ts` has **no matching `resolve.alias`**. An `@/components/...` import will
 typecheck cleanly and then fail the Vite build. Use relative imports (`../components/...`) —
-that is what all 31 files under `src/` actually do. Either add the alias to Vite or delete it
+that is what all 42 files under `src/` actually do. Either add the alias to Vite or delete it
 from tsconfig; do not leave it half-wired.
 
 **Bare Tailwind color families drop opacity modifiers silently.** `graphite`, `mint`,
@@ -51,11 +52,30 @@ uploads through `src/lib/image.ts` rather than storing raw data URLs.
 **`STORAGE_KEYS.theme` and `.prefs` are dead.** The theme toggle was removed during the
 light-theme migration; those keys are unreferenced. Don't wire them back up.
 
+**`Bed.studentId` is the only occupancy truth.** A room is not "full" because a
+`Room.capacity` number says so, and `Student` must never grow a `roomId`/`bedId`. Move,
+evict and delete all reconcile through `beds`. Copying the occupant onto the student is how
+"room 205 shows two people" bugs get in.
+
+**Admin edits one residence at a time.** `useAllRooms()`/`useOccupancy()` see the whole
+estate; the warden tabs (`useDormRooms`, `useDormBeds`, `useDormOccupancy`,
+`useDormHistoryRooms`) see only `activeDormitoryId`. Dashboard/Landing/Login/Floor may stay
+global, but anything shown under the Admin residence selector must follow
+`useDorm*`. The duty *queue* stays estate-wide, so history filters with `inScope()` rather
+than being rebuilt.
+
 ## Architecture
 
 - **No backend.** All state is Zustand + `localStorage` (`yotoqhonam.state.v1`,
   `yotoqhonam.session.v1`). `src/lib/storage.ts` is deliberately defensive — every access
   is try/caught so disabled storage degrades to in-memory instead of a blank screen.
+- **One registry, many views.** `src/data/registry.ts` owns pure derivations and rules
+  (occupancy, `nextRoomSlot`, validation) with no React and no storage; `dormStore` owns
+  mutations; `src/store/useRegistry.ts` exposes memoised views. Screens must not recompute
+  occupancy or reach into raw arrays.
+- **Hooks derive from raw slices.** Every hook subscribes to a stable persisted array and
+  derives with `useMemo`; a selector that builds a new array would break the store's
+  identity check and spin `useSyncExternalStore`.
 - **`HashRouter` is deliberate.** Pages has no SPA rewrite, so `/#/floor` survives a hard
   refresh while `/floor` would 404. Don't migrate to `BrowserRouter` without adding a
   server-side fallback.
@@ -63,6 +83,18 @@ light-theme migration; those keys are unreferenced. Don't wire them back up.
   Never introduce a root-absolute `/assets/...` reference.
 - Routes are lazy-loaded in `src/App.tsx`; `three` is a separate `manualChunks` entry
   (~850 kB) so the landing page doesn't pay for it.
+
+### Persisted schema
+
+`DemoState` is `version: 2` and still stored under the `yotoqhonam.state.v1` key. It adds
+`dormitories`, `floors`, `rooms`, `beds`, `students` and `assignmentHistory` to the duty
+data. `loadState()` upgrades a v1 payload in place and **writes the result back
+immediately** — a version bump that is not flushed leaves the migration to run again on
+every load. `activeDormitoryId` picks which residence Admin and the 3D floor show.
+
+The duty ring survives a schema bump and a new calendar day: when today has no records,
+`withTodayDuties()` appends `makeDutiesForDay(queue)` for offsets `-2`, `-1` and `0`, which
+keeps the registry, the history and the filed reports intact.
 
 ### 3D floor
 
@@ -89,19 +121,23 @@ this, verify a full four-step cycle, not just one handover.
 
 There is **no committed test suite and no Playwright dependency.** Verification was done
 with Playwright scripts written to a temp directory (`%TEMP%\opencode\*.py`), each accepting
-a base URL so they can be pointed at production.
+a base URL so they can be pointed at production: `admin_crud.py` (warden CRUD, assignment,
+move, eviction), `multidorm.py` (residence selector scoping, dormitory create/delete),
+`migration.py` (v1 upgrade and calendar rollover), `ring.py`, `nowebgl.py` and
+`overflow.py`.
 
 If you add automated checks, commit them and add Playwright to `devDependencies` — right now
 a fresh clone has zero test coverage and nothing will catch a regression.
 
 Before calling a change done, at minimum run `npm run lint && npm run build` and confirm on a
 real page that: no console errors, no horizontal overflow at 390 / 834 / 1440, and the WebGL
-fallback still renders when WebGL is disabled.
+fallback still renders when WebGL is disabled. **`tsc` will not save you from a misplaced
+`return` inside a `.map()` callback** — it typechecks — so eyeball the rendered panel.
 
 ## Conventions
 
 - Product copy is **Uzbek for structure, English for body prose**. Admin tabs are Uzbek
-  (`Talabalar`, `Xonalar`, `Qavatlar`, `Navbatchilik`); keep them that way.
+  (`Talabalar`, `Joylar`, `Xonalar`, `Qavatlar`, `Navbatchilik`); keep them that way.
 - Positioning matters: this is a **residence management platform**. Duty rotation and photo
   reports are a feature, not the product. Do not let landing or dashboard copy drift back to
   leading with cleaning/duty.

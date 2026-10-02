@@ -2,16 +2,15 @@ import { useMemo } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ArrowLeft, ArrowRight, Camera, CheckCircle2, History, Users } from 'lucide-react';
-import { ROOMS, residentsOf } from '../data/mock';
 import { getNextDutyRoom, resolveRoomState, ROOM_VISUALS } from '../data/dutyQueue';
 import { useAuthStore } from '../store/authStore';
 import { useDormStore } from '../store/dormStore';
+import { useDutyRing, useResidents, useRoom, useRoomBeds, useRoomOccupant, useUserRoom } from '../store/useRegistry';
 import { useReducedMotion } from '../hooks/useMedia';
 import { Button, ButtonLink } from '../components/ui/Button';
 import { DutyStamp, DutyTimeline } from '../components/duty/DutyTimeline';
 import { EmptyState, KeyTag, ProgressBar, RoomStateBadge, SectionTitle } from '../components/ui/Primitives';
 import { cn, formatClock, formatShortDate, todayISO } from '../lib/utils';
-import type { Room } from '../data/types';
 
 export default function RoomPage() {
   const { id = '' } = useParams();
@@ -21,19 +20,19 @@ export default function RoomPage() {
   const user = useAuthStore((s) => s.user);
   const duties = useDormStore((s) => s.duties);
   const reports = useDormStore((s) => s.reports);
-  const queue = useDormStore((s) => s.queue);
   const activeDutyId = useDormStore((s) => s.activeDutyId);
   const startDuty = useDormStore((s) => s.startDuty);
   const setActiveDuty = useDormStore((s) => s.setActiveDuty);
 
-  const room = ROOMS.find((r) => r.id === id);
+  const room = useRoom(id);
+  const residents = useResidents(id);
+  const beds = useRoomBeds(id);
+  const ownRoom = useUserRoom(user);
 
   const activeDuty = useMemo(() => duties.find((d) => d.id === activeDutyId) ?? null, [duties, activeDutyId]);
-  const ring = useMemo(
-    () => queue.map((q) => ROOMS.find((r) => r.id === q)).filter((r): r is Room => Boolean(r)),
-    [queue],
-  );
+  const ring = useDutyRing();
   const nextRoom = getNextDutyRoom(activeDuty?.roomId ?? '', ring);
+  const nextOccupants = useRoomOccupant(nextRoom?.id ?? null);
 
   const history = useMemo(
     () =>
@@ -63,13 +62,12 @@ export default function RoomPage() {
 
   const todayDuty = duties.find((d) => d.roomId === room.id && d.date === todayISO()) ?? null;
   const isDutyRoom = room.id === activeDuty?.roomId;
-  const residents = residentsOf(room.id);
-  const isOwn = user?.roomId === room.id;
+  const isOwn = ownRoom?.id === room.id;
 
   const state = resolveRoomState(room.id, {
     currentDutyRoomId: activeDuty?.roomId ?? null,
     nextDutyRoomId: nextRoom?.id ?? null,
-    ownRoomId: user?.roomId ?? null,
+    ownRoomId: ownRoom?.id ?? null,
     dutyStatus: activeDuty?.status ?? null,
   });
 
@@ -198,7 +196,7 @@ export default function RoomPage() {
               <span>Next in the ring</span>
               <span className="plate px-2 py-0.5 text-[11px] text-mint-600">{nextRoom.number}</span>
               <span className="text-text-dim">
-                · {residentsOf(nextRoom.id).length} residents, {nextRoom.side} side
+                · {nextOccupants} residents, {nextRoom.side} side
               </span>
             </p>
           ) : null}
@@ -213,21 +211,28 @@ export default function RoomPage() {
             {residents.length === 0 ? (
               <li className="text-sm text-text-mist">No residents linked to this room yet.</li>
             ) : (
-              residents.map((r) => (
-                <li key={r.id} className="flex items-center gap-3">
-                  <KeyTag initials={r.initials} tone={r.id === user?.id ? 'brass' : 'default'} />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-text">
-                      {r.name}
-                      {r.id === user?.id ? <span className="ml-2 text-[11px] text-brass-600">you</span> : null}
-                    </p>
-                    <p className="truncate font-mono text-[11px] text-text-dim">{r.email}</p>
-                  </div>
-                  <span className="ml-auto shrink-0 text-[11px] text-text-dim capitalize">
-                    {r.role}
-                  </span>
-                </li>
-              ))
+              residents.map((r) => {
+                const bed = beds.find((b) => b.studentId === r.id);
+                const isMe = Boolean(user && r.userId === user.id);
+                return (
+                  <li key={r.id} className="flex items-center gap-3">
+                    <KeyTag initials={r.initials} tone={isMe ? 'brass' : 'default'} />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-text">
+                        {r.name}
+                        {isMe ? <span className="ml-2 text-[11px] text-brass-600">you</span> : null}
+                      </p>
+                      <p className="truncate font-mono text-[11px] text-text-dim">
+                        {bed ? `${bed.number}-joy` : 'joy belgilanmagan'}
+                        {r.faculty ? ` · ${r.faculty}` : ''}
+                      </p>
+                    </div>
+                    {r.course ? (
+                      <span className="ml-auto shrink-0 text-[11px] text-text-dim">{r.course}-kurs</span>
+                    ) : null}
+                  </li>
+                );
+              })
             )}
           </ul>
           <p className="mt-5 border-t border-graphite-950/[0.09] pt-3.5 text-xs text-text-dim">
